@@ -1,0 +1,34 @@
+appId: dev.agentdeck.app
+productName: AgentDeck
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!{src,spike}/**'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+asarUnpack:
+  - resources/**
+  - '**/node_modules/node-pty/**'
+mac:
+  target: dmg
+  category: public.app-category.developer-tools
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: false
+dmg:
+  artifactName: ${productName}-${version}.${ext}
+win:
+  target: nsis
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Development
+# Auto-update feed. Fill in owner/repo, then publish with `electron-builder --publish always` (needs GH_TOKEN).
+publish:
+  provider: github
+  owner: aryan2621
+  repo: agentdeck
+npmRebuild: false

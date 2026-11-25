@@ -1,0 +1,56 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+
+/* Surface ladder: chrome (window, sidebar) < background (work surface) < panel (raised) < overlay (menus).
+   One amber accent for the primary action, focus and "needs you". Dark is the default scene; light mirrors it. */
+:root {
+  --chrome: #ecece9; --background: #fbfbfa; --foreground: #1c1c1f; --panel: #f4f4f2; --card: #ffffff; --overlay: #ffffff;
+  --muted: #ebebe8; --muted-foreground: #5f5f5b; --border: rgba(0, 0, 0, 0.09); --input: rgba(0, 0, 0, 0.16);
+  --primary: #b45309; --primary-foreground: #ffffff; --accent: rgba(0, 0, 0, 0.06); --ring: #b45309;
+  --ok: #2a7a46; --warn: #92600a; --destructive: #c4382c;
+  --add: rgba(42, 122, 70, 0.12); --del: rgba(196, 56, 44, 0.12);
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --chrome: #0e0e10; --background: #151517; --foreground: #ececea; --panel: #1a1a1d; --card: #1a1a1d; --overlay: #212125;
+    --muted: #202024; --muted-foreground: #8f8f8a; --border: rgba(255, 255, 255, 0.075); --input: rgba(255, 255, 255, 0.14);
+    --primary: #f5a524; --primary-foreground: #151517; --accent: rgba(255, 255, 255, 0.06); --ring: #f5a524;
+    --ok: #7fc08f; --warn: #e0b45a; --destructive: #e5848a;
+    --add: rgba(127, 192, 143, 0.13); --del: rgba(229, 132, 138, 0.14);
+  }
+}
+@theme inline {
+  --color-background: var(--background); --color-foreground: var(--foreground);
+  --color-chrome: var(--chrome); --color-overlay: var(--overlay); --color-panel: var(--panel); --color-card: var(--card); --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground); --color-border: var(--border); --color-input: var(--input);
+  --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent); --color-ring: var(--ring);
+  --color-ok: var(--ok); --color-warn: var(--warn); --color-destructive: var(--destructive);
+  --color-add: var(--add); --color-del: var(--del);
+  --font-sans: 'Geist Variable', -apple-system, system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace;
+  --radius-md: 6px; --radius-sm: 4px;
+}
+@layer base {
+  * { @apply border-border; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  html, body, #root { height: 100%; margin: 0; }
+  body { @apply bg-background font-sans text-[13px] leading-normal text-foreground antialiased; }
+  :focus-visible { @apply outline-2 outline-offset-1 outline-ring; }
+  ::selection { background: var(--primary); color: var(--primary-foreground); }
+  .tnum { font-variant-numeric: tabular-nums; }
+  button { cursor: default; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* shiki dual-theme: pick the variable set by OS scheme */
+.shiki-host .shiki, .shiki-host .shiki span, .shiki-host span[style*="--shiki"] { color: var(--shiki-light); background: transparent; }
+@media (prefers-color-scheme: dark) { .shiki-host .shiki, .shiki-host .shiki span, .shiki-host span[style*="--shiki"] { color: var(--shiki-dark); } }
+
+/* Live agent: a slow opacity pulse on the "working" label. */
+@keyframes pulse-text { 50% { opacity: .45; } }
+.shimmer { color: var(--muted-foreground); animation: pulse-text 1.8s ease-in-out infinite; }
+/* One motion rhythm for every state change. */
+:where(button, a, input, textarea, select, [role]) { transition-duration: 120ms; transition-timing-function: ease-out; }
