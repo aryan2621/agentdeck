@@ -26,11 +26,12 @@ export default function Terminal({ sessionId, run }: { sessionId: string; run?: 
   const { terminalFont, terminalFontSize, monoFont } = useStore().settings
   const fontRef = useRef({ fontFamily: terminalStack({ terminalFont, monoFont }), fontSize: terminalFontSize })
   const termRef = useRef<XTerm | null>(null)
+  const fitRef = useRef<FitAddon | null>(null)
   useEffect(() => {
     fontRef.current = { fontFamily: terminalStack({ terminalFont, monoFont }), fontSize: terminalFontSize }
     const t = termRef.current
-    if (t) { Object.assign(t.options, fontRef.current) }
-  }, [terminalFont, terminalFontSize, monoFont])
+    if (t) { Object.assign(t.options, fontRef.current); fitRef.current?.fit(); void window.api.termResize(sessionId, t.cols, t.rows) }
+  }, [sessionId,terminalFont, terminalFontSize, monoFont])
   useEffect(() => {
     const term = new XTerm({
       ...fontRef.current, cursorBlink: true,
@@ -44,6 +45,7 @@ export default function Terminal({ sessionId, run }: { sessionId: string; run?: 
     term.loadAddon(fit)
     term.open(host.current!)
     termRef.current = term
+    fitRef.current = fit
     const sync = (): void => {
       fit.fit()
       void window.api.termResize(sessionId, term.cols, term.rows)
@@ -57,7 +59,7 @@ export default function Terminal({ sessionId, run }: { sessionId: string; run?: 
       sync()
       if (runRef.current) void window.api.termWrite(sessionId, runRef.current + '\r')
     }, actions.fail)
-    return () => { off(); input.dispose(); ro.disconnect(); scheme.removeEventListener('change', retheme); termRef.current = null; term.dispose() }
+    return () => { off(); input.dispose(); ro.disconnect(); scheme.removeEventListener('change', retheme); termRef.current = null; fitRef.current = null; term.dispose() }
   }, [sessionId])
   return <div className="min-h-0 flex-1 bg-panel p-2" ref={host} aria-label="Terminal" />
 }

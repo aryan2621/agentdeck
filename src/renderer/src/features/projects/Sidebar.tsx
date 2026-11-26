@@ -183,8 +183,8 @@ export default function Sidebar({ rail = false }: { rail?: boolean }): React.JSX
           </label>
         </div>
       )}
-      <div className="flex flex-col gap-0.5 border-b border-border px-2">{nav}</div>
-      <div onKeyDown={arrows} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2">
+      <div className="flex flex-col gap-0.5 border-b border-border px-2 pb-2">{nav}</div>
+      <div onKeyDown={arrows} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pt-3 pb-2">
         <div className="flex items-center pr-0">
           <div className="flex-1"><Label>My workspaces</Label></div>
           <Button variant="ghost" size="icon" className="size-6" aria-label="Add project" onClick={() => void actions.addProject()}><FolderPlus /></Button>

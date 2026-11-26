@@ -29,7 +29,7 @@ export const Loading = ({ children = 'Loading…', className }: { children?: Rea
 export const SettingsSection = ({ title, description, action, children }: { title?: string; description?: string; action?: React.ReactNode; children: React.ReactNode }): React.JSX.Element => (
   <section className="flex flex-col">
     {title && <div className="flex items-center justify-between gap-2"><h2 className="text-prose font-medium text-foreground">{title}</h2>{action}</div>}
-    {description && <p className="mt-1 text-prose text-muted-foreground">{description}</p>}
+    {description && <p className={cn(!title && '-mt-4', 'mt-1 text-prose text-muted-foreground')}>{description}</p>}
     <div className={cn(title && 'mt-2', 'flex flex-col divide-y divide-border')}>{children}</div>
   </section>
 )

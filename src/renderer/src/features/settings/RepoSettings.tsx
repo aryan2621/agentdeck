@@ -120,9 +120,9 @@ export function RepoActions({ project }: { project: ProjectInfo }): React.JSX.El
         </SettingsRow>
       </SettingsSection>
       <SettingsSection>
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col">
           {INSTRUCTION_KEYS.map(([k, label]) => (
-            <Disclosure key={k} head={<span className="block text-left"><span className="block text-prose font-medium">{label} preferences</span><span className="block text-prose font-normal text-muted-foreground">{k === 'general' ? 'Add custom instructions sent to the agent at the start of every new chat.' : k === 'branchRename' ? 'Add custom instructions for generating branch names from your messages.' : `Add custom instructions sent to the agent when you click the ${k === 'review' ? 'Review' : label} button.`}</span></span>}>
+            <Disclosure key={k} className="border-b border-border" trigger="px-0 py-4 hover:bg-transparent" chevron="order-last ml-auto size-4 rotate-90 group-data-[state=open]:-rotate-90" content="ml-0 mb-4" head={<span className="block text-left"><span className="block text-prose font-medium">{label} preferences</span><span className="block text-prose font-normal text-muted-foreground">{k === 'general' ? 'Add custom instructions sent to the agent at the start of every new chat.' : k === 'branchRename' ? 'Add custom instructions for generating branch names from your messages.' : `Add custom instructions sent to the agent when you click the ${k === 'review' ? 'Review' : label} button.`}</span></span>}>
               <Textarea key={project.id} rows={4} aria-label={`${label} instructions`} defaultValue={cur.instructions[k] ?? ''} onBlur={(e) => e.target.value !== (cur.instructions[k] ?? '') && set({ instructions: { ...cur.instructions, [k]: e.target.value } })} />
             </Disclosure>
           ))}

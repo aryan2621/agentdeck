@@ -1,6 +1,6 @@
 {
   "name": "agentdeck",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Run Claude Code and Codex agents in parallel on your Mac",
   "main": "./out/main/index.js",
   "author": "AgentDeck contributors",
