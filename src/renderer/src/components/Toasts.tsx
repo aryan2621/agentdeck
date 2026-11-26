@@ -1,5 +1,5 @@
 import { AlertCircle, Check, X } from 'lucide-react'
-import { actions, useStore } from '../store'
+import { actions, useStore } from '../state/store'
 import { Button } from './ui/button'
 import { cn } from '../lib/utils'
 

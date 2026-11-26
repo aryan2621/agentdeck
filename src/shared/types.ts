@@ -134,7 +134,6 @@ export interface Settings {
   archiveOnMerge: boolean
   automerge: boolean
   optionalChecksBlocking: boolean
-  setUpstream: boolean
   ghStack: boolean
   /** Account page. */
   claudeToolApprovals: boolean
@@ -203,7 +202,6 @@ export const DEFAULT_SETTINGS: Settings = {
   archiveOnMerge: false,
   automerge: false,
   optionalChecksBlocking: false,
-  setUpstream: true,
   ghStack: true,
   claudeToolApprovals: false,
   codexApprovals: 'default',

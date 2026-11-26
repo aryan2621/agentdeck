@@ -35,7 +35,7 @@ export function setSettings(patch: Partial<Settings>): Settings {
 
 /** Branch / remote names we accept from the renderer ('' is allowed separately). */
 const REF = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,100}$/
-const BOOLS = ['autoRenameBranches', 'renameSessionOnBranch', 'archiveOnMerge', 'automerge', 'optionalChecksBlocking', 'setUpstream', 'ghStack', 'claudeToolApprovals', 'claudeChrome', 'codeLigatures'] as const
+const BOOLS = ['autoRenameBranches', 'renameSessionOnBranch', 'archiveOnMerge', 'automerge', 'optionalChecksBlocking', 'ghStack', 'claudeToolApprovals', 'claudeChrome', 'codeLigatures'] as const
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 const strMap = (v: unknown, ok: (s: string) => boolean): Record<string, string> =>
   Object.fromEntries(Object.entries(isObj(v) ? v : {}).filter((e): e is [string, string] => typeof e[1] === 'string' && ok(e[1])))

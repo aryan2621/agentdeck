@@ -76,15 +76,16 @@
   --text-title: 16px; --text-title--line-height: 1.4; --text-title--font-weight: 600;
 }
 @layer base {
-  * { @apply border-border; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  * { @apply border-border; scrollbar-width: none; }
+  ::-webkit-scrollbar { display: none; }
   html, body, #root { height: 100%; margin: 0; }
   body { @apply bg-background font-sans text-body leading-normal text-foreground antialiased; }
   :focus-visible { @apply outline-2 outline-offset-1 outline-ring; }
   ::selection { background: var(--primary); color: var(--primary-foreground); }
   .bg-primary ::selection, .bg-primary::selection { background: var(--primary-foreground); color: var(--primary); }
   .tnum { font-variant-numeric: tabular-nums; }
-  button { cursor: default; }
-  .pointer-ui :is(button, [role=radio], [role=tab], [role=combobox], label:has(input)):not(:disabled, [aria-disabled=true]) { cursor: pointer; }
+  :is(button, a[href], summary, select, label:has(input), [role=button], [role=link], [role=tab], [role=radio], [role=checkbox], [role=switch], [role=combobox], [role=menuitem], [role=menuitemcheckbox], [role=menuitemradio], [role=option], input:is([type=checkbox], [type=radio], [type=button], [type=submit], [type=file])) { cursor: pointer; }
+  :is(button, select, input, textarea, [role]):is(:disabled, [aria-disabled=true], [data-disabled]) { cursor: not-allowed; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
@@ -98,12 +99,6 @@
 .shimmer { color: var(--muted-foreground); animation: pulse-text 1.8s ease-in-out infinite; }
 /* One motion rhythm for every state change. */
 :where(button, a, input, textarea, select, [role]) { transition-property: color, background-color, border-color, opacity; transition-duration: 120ms; transition-timing-function: ease-out; }
-
-/* Scrolls without a visible bar (chat log). */
-@utility no-scrollbar {
-  scrollbar-width: none;
-  &::-webkit-scrollbar { display: none; }
-}
 
 @keyframes logo-bar { 0%, 100% { opacity: 0.25 } 40% { opacity: 1 } }
 .logo-bar { animation: logo-bar 0.9s ease-in-out infinite; }

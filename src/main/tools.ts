@@ -55,7 +55,7 @@ export async function agentInfo(id: ProviderId): Promise<{ label: string; value:
 
 let ghLogin: string | null | undefined
 /** GitHub login of the `gh` user, or null when gh is missing or logged out (cached until `fresh`). */
-export async function githubLogin(fresh = false): Promise<string | null> {
+async function githubLogin(fresh = false): Promise<string | null> {
   if (ghLogin !== undefined && !fresh) return ghLogin
   ghLogin = hasCommand('gh') ? (await out('gh', ['api', 'user', '-q', '.login'])).match(/^[A-Za-z0-9-]{1,39}$/)?.[0] ?? null : null
   return ghLogin

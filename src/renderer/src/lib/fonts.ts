@@ -9,7 +9,7 @@ export const MONO: Record<string, { label: string; stack: string }> = {
   monaco: { label: 'Monaco', stack: `Monaco, ${FALLBACK}` },
   courier: { label: 'Courier New', stack: `'Courier New', ${FALLBACK}` }
 }
-export const monoStack = (id: string): string => (MONO[id] ?? MONO.geist).stack
+const monoStack = (id: string): string => (MONO[id] ?? MONO.geist).stack
 /** Terminal stack: the user's installed font name first, else the code font. */
 export const terminalStack = (s: Pick<Settings, 'terminalFont' | 'monoFont'>): string =>
   s.terminalFont ? `"${s.terminalFont}", ${monoStack(s.monoFont)}` : monoStack(s.monoFont)

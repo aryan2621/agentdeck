@@ -1,5 +1,6 @@
 import Logo from '../Logo'
 import { cn } from '../../lib/utils'
+import { Switch } from './checkbox'
 
 /** Label + control stack used by every form. */
 export const Field = ({ label, className, children }: { label: string; className?: string; children: React.ReactNode }): React.JSX.Element => (
@@ -42,4 +43,11 @@ export const SettingsRow = ({ label, description, stacked, children }: { label: 
     </div>
     {children && <div className={cn('flex items-center gap-2', stacked ? 'w-full' : 'shrink-0')}>{children}</div>}
   </div>
+)
+
+/** A settings row whose control is an on/off switch. */
+export const ToggleRow = ({ label, description, checked, onChange, disabled }: { label: string; description?: React.ReactNode; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }): React.JSX.Element => (
+  <SettingsRow label={label} description={description}>
+    <Switch aria-label={label} checked={checked} disabled={disabled} onCheckedChange={(c) => onChange(c === true)} />
+  </SettingsRow>
 )

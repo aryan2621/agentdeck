@@ -9,15 +9,20 @@ A macOS app for running several AI coding agents (Claude Code and Codex) in para
 - Worktree per session, plus `agentdeck.json` setup scripts.
 - Terminal tab in the session's worktree.
 - Approve or deny edits and commands; Ask before edits, Auto-edit, Full access and Plan only modes. With a request focused, `Y` approves and `N` denies.
-- Changes panel: per-file diff grouped by folder, revert a file, then commit, push and open a PR (`gh pr create`) from one form.
+- Changes panel: per-file diff (unified, split or preview), revert a file or hunk, mark files viewed, then commit, push and open a PR (`gh pr create`) from one form. Agent shortcuts for code review, fix CI errors and resolve conflicts.
+- Setup, Run and Artifacts tabs: setup output, per-repo preview URLs (`$AGENTDECK_PORT`), and files agents save in `.context`.
 - Sidebar grouped by project, with transcript search (`⌘F`). Drag its edge to resize (240–400px) or collapse it to a rail (`⌘B`).
 - `⌘K` command palette, `⌘N` new session, `⌘J` next session that needs you. Full list in Settings, Keyboard shortcuts.
-- Settings: defaults, accounts, notifications and light/dark/system theme.
+- Settings: default models, accounts, notifications, appearance (themes, fonts, zoom), git (branch prefix, auto-rename, archive on merge, automerge), environment variables (global and per repo), per-repo actions (run mode, custom agent instructions) and experimental flags.
 - Fork, rename, archive and rewind files to a checkpoint.
 - Status dots, dock badge and notifications.
 - Multiple Claude/Codex logins, moving a session between accounts, usage and plan limits.
 
 ### Screenshots
+Home:
+
+![Home screen with the project list and quick actions](docs/screenshots/home.png)
+
 Approving a command while the agent waits:
 
 ![An agent asking approval to run a command](docs/screenshots/approval.png)

@@ -3,7 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import type { ProviderId } from '../shared/types'
 
 /** Provider -> env var the CLI reads. Only providers that accept an API key. */
-export const KEY_ENV: Partial<Record<ProviderId, string>> = { claude: 'ANTHROPIC_API_KEY', codex: 'OPENAI_API_KEY' }
+const KEY_ENV: Partial<Record<ProviderId, string>> = { claude: 'ANTHROPIC_API_KEY', codex: 'OPENAI_API_KEY' }
 
 let file = ''
 let keys: Record<string, string> = {} // provider -> base64 of the encrypted key

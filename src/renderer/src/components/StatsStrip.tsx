@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { SessionInfo } from '../../../shared/ipc'
 import { PROVIDERS } from '../../../shared/types'
-import { useStore } from '../store'
+import { useStore } from '../state/store'
 import { fmtTokens, windowLeft } from '../lib/stats'
 import ProviderIcon from './ProviderIcon'
 

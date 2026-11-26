@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import { DialogShell, DialogTitle } from './ui/dialog'
 import { Command } from 'cmdk'
-import { actions, useStore } from '../store'
+import { actions, useStore } from '../state/store'
 import { StatusDot } from './StatusBadge'
 import { Kbd } from './ui/kbd'
 import { keysOf, FOCUS_SEARCH, sessionCommand } from '../lib/shortcuts'
 import { Archive, BellRing, FolderPlus, PanelLeft, PanelRight, Pencil, RotateCcw, Search, Settings, SquarePen } from 'lucide-react'
 
-const item = 'flex cursor-default items-center gap-2 rounded-sm px-2 h-8 text-body data-[selected=true]:bg-accent'
+const item = 'flex cursor-pointer items-center gap-2 rounded-sm px-2 h-8 text-body data-[selected=true]:bg-accent'
 const group = 'text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1 [&_[cmdk-group-heading]]:text-meta [&_[cmdk-group-heading]]:text-faint'
 
 const OPEN_PALETTE = 'agentdeck:palette'

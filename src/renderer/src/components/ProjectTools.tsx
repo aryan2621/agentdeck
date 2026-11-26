@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ChevronLeft, ChevronRight, Download, RefreshCw } from 'lucide-react'
 import type { HistoryItem, McpServer } from '../../../main/history'
-import { actions } from '../store'
+import { actions } from '../state/store'
 import { Loading, SettingsRow, SettingsSection } from './ui/field'
 import { Row } from './ui/row'
 import Avatar from './Avatar'

@@ -6,7 +6,7 @@ export const MenuTrigger = M.Trigger
 export const MenuSub = M.Sub
 
 const panel = 'z-50 min-w-52 rounded-lg border border-border bg-overlay p-1 text-body shadow-overlay data-[state=open]:animate-in data-[state=open]:fade-in-0'
-const item = 'flex cursor-default items-center h-9 gap-2.5 rounded-sm px-2.5 outline-none data-[disabled]:opacity-50 data-[highlighted]:bg-accent [&_svg]:size-3.5 [&_svg]:text-muted-foreground'
+const item = 'flex cursor-pointer data-[disabled]:cursor-not-allowed items-center h-9 gap-2.5 rounded-sm px-2.5 outline-none data-[disabled]:opacity-50 data-[highlighted]:bg-accent [&_svg]:size-3.5 [&_svg]:text-muted-foreground'
 
 export const MenuContent = ({ className, ...p }: React.ComponentProps<typeof M.Content>): React.JSX.Element => (
   <M.Portal><M.Content align="end" sideOffset={4} className={cn(panel, className)} {...p} /></M.Portal>

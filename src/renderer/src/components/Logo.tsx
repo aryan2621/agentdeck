@@ -14,7 +14,7 @@ const LETTERS: Record<string, string[]> = {
 /** AgentDeck's name in the reference's modular, cut-out lettering. */
 export function Wordmark(): React.JSX.Element {
   return (
-    <svg viewBox="0 0 458 70" role="img" aria-label="AgentDeck" className="h-auto w-full fill-current">
+    <svg viewBox="0 0 461 70" role="img" aria-label="AgentDeck" className="h-auto w-full fill-current">
       {'AGENTDECK'.split('').flatMap((letter, i) => LETTERS[letter].flatMap((row, y) => [...row.matchAll(/1+/g)].map((m) => <rect key={`${i}-${y}-${m.index}`} x={i * 52 + m.index * 9} y={y * 14} width={m[0].length * 9 - 1} height={10} rx={1} />)))}
     </svg>
   )
