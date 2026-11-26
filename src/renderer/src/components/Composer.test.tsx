@@ -14,11 +14,12 @@ const api = {
   listCheckpoints: vi.fn().mockResolvedValue([]),
   listFiles: vi.fn().mockResolvedValue([]),
   onEvent: vi.fn(),
+  sessionUsage: vi.fn().mockResolvedValue({ inputTokens: 0, outputTokens: 0, costUsd: 0 }),
 }
 vi.stubGlobal('window', Object.assign(window, { api }))
 afterEach(() => { cleanup(); Object.values(api).forEach((f) => f.mockClear()); actions.setQueue('s1', []) })
 
-const session = (status: SessionInfo['status']): SessionInfo => ({ id: 's1', projectId: 'p1', provider: 'claude', permissionMode: 'supervised', status, title: 'T', createdAt: 0 })
+const session = (status: SessionInfo['status']): SessionInfo => ({ id: 's1', projectId: 'p1', provider: 'claude', permissionMode: 'supervised', status, title: 'T', createdAt: 0, lastActiveAt: 0 })
 const box = (): HTMLElement => screen.getByPlaceholderText('Message T')
 
 describe('Composer', () => {
@@ -27,10 +28,12 @@ describe('Composer', () => {
     await userEvent.type(box(), 'hello{Enter}')
     expect(api.sendMessage).toHaveBeenCalledWith('s1', 'hello', undefined)
   })
-  it('queues instead of sending while a turn is running', async () => {
+  it('steers on Enter and queues on ⌘↵ while a turn is running', async () => {
     render(<Composer session={session('working')} />)
-    await userEvent.type(box(), 'later{Enter}')
+    await userEvent.type(box(), 'later{Meta>}{Enter}{/Meta}')
     expect(api.sendMessage).not.toHaveBeenCalled()
+    await userEvent.type(box(), 'now{Enter}')
+    expect(api.sendMessage).toHaveBeenCalledWith('s1', 'now', undefined)
   })
   it('/stop interrupts and is not sent as a message', async () => {
     render(<Composer session={session('working')} />)

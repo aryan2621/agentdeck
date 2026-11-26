@@ -1,9 +1,8 @@
 import { useEffect } from 'react'
-import { AlertTriangle, Gauge } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
 import { PROVIDERS, hasAccounts } from '../../../shared/types'
 import { actions, useStore } from '../store'
 import { cn } from '../lib/utils'
-import { Tip } from './ui/tooltip'
 
 const LIMIT_PROVIDERS = PROVIDERS.filter((p) => hasAccounts(p.id))
 
@@ -21,8 +20,7 @@ export default function Limits({ compact = false }: { compact?: boolean }): Reac
     // Tightest window per provider, so every provider with data stays visible.
     const tight = LIMIT_PROVIDERS.map(({ id }) => rows.filter((r) => r.key.startsWith(`${id}-`)).reduce<(typeof rows)[number] | null>((a, b) => (!a || b.pct < a.pct ? b : a), null)).filter((r) => !!r)
     return (
-      <Tip label={rows.map((r) => `${r.text} ${r.pct}% left`).join(' · ')}>
-        <div tabIndex={0} aria-label={`Usage limits, estimate: ${tight.map((t) => `${t.text} ${t.pct}% left`).join(', ')}`} className="flex flex-col gap-1 rounded-sm px-2 text-meta text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+        <div tabIndex={0} aria-label={`Usage limits, estimate: ${tight.map((t) => `${t.text} ${t.pct}% left`).join(', ')}`} className="flex flex-col gap-1 rounded-sm px-2 text-meta text-muted-foreground">
           {tight.map((t) => (
             <div key={t.key} className="flex items-center gap-2">
               <span className="min-w-0 flex-1 truncate">{t.text}</span>
@@ -33,12 +31,11 @@ export default function Limits({ compact = false }: { compact?: boolean }): Reac
             </div>
           ))}
         </div>
-      </Tip>
     )
   }
   return (
-    <div className="flex flex-col gap-2 text-small">
-      <div className="flex items-center gap-1.5 font-medium text-muted-foreground"><Gauge className="size-3.5" />Usage limits · estimate</div>
+    <div className="flex flex-col gap-3 text-prose">
+      <div><h2 className="font-medium">Usage limits</h2><p className="text-muted-foreground">Estimate from each provider.</p></div>
       {low && <div role="alert" className="flex items-start gap-1.5 text-destructive"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />Near a limit: switch the session's account from its Account menu.</div>}
       {rows.map((r) => (
         <div key={r.key} className="flex flex-col gap-1">

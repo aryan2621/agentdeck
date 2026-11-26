@@ -2,7 +2,8 @@ import { useEffect, useRef } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal as XTerm, type ITheme } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
-import { actions } from '../store'
+import { actions, useStore } from '../store'
+import { terminalStack } from '../lib/fonts'
 
 /** ANSI palette from the design tokens (DESIGN.md §2.8); bright variants mix toward white. */
 function termTheme(): ITheme {
@@ -18,11 +19,21 @@ function termTheme(): ITheme {
   }
 }
 
-export default function Terminal({ sessionId }: { sessionId: string }): React.JSX.Element {
+/** `run`: a command typed into the shell once it is open (read at mount, so changing it later does nothing). */
+export default function Terminal({ sessionId, run }: { sessionId: string; run?: string }): React.JSX.Element {
   const host = useRef<HTMLDivElement>(null)
+  const runRef = useRef(run)
+  const { terminalFont, terminalFontSize, monoFont } = useStore().settings
+  const fontRef = useRef({ fontFamily: terminalStack({ terminalFont, monoFont }), fontSize: terminalFontSize })
+  const termRef = useRef<XTerm | null>(null)
+  useEffect(() => {
+    fontRef.current = { fontFamily: terminalStack({ terminalFont, monoFont }), fontSize: terminalFontSize }
+    const t = termRef.current
+    if (t) { Object.assign(t.options, fontRef.current) }
+  }, [terminalFont, terminalFontSize, monoFont])
   useEffect(() => {
     const term = new XTerm({
-      fontFamily: '"Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace', fontSize: 12, cursorBlink: true,
+      ...fontRef.current, cursorBlink: true,
       theme: termTheme()
     })
     // The theme reads CSS tokens, so it must be rebuilt when light/dark flips.
@@ -32,6 +43,7 @@ export default function Terminal({ sessionId }: { sessionId: string }): React.JS
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(host.current!)
+    termRef.current = term
     const sync = (): void => {
       fit.fit()
       void window.api.termResize(sessionId, term.cols, term.rows)
@@ -43,8 +55,9 @@ export default function Terminal({ sessionId }: { sessionId: string }): React.JS
     window.api.termOpen(sessionId).then((backlog) => {
       term.write(backlog)
       sync()
+      if (runRef.current) void window.api.termWrite(sessionId, runRef.current + '\r')
     }, actions.fail)
-    return () => { off(); input.dispose(); ro.disconnect(); scheme.removeEventListener('change', retheme); term.dispose() }
+    return () => { off(); input.dispose(); ro.disconnect(); scheme.removeEventListener('change', retheme); termRef.current = null; term.dispose() }
   }, [sessionId])
   return <div className="min-h-0 flex-1 bg-panel p-2" ref={host} aria-label="Terminal" />
 }

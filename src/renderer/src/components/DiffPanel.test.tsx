@@ -24,19 +24,17 @@ describe('DiffPanel', () => {
   })
   it('reverts a file only after confirming', async () => {
     render(<DiffPanel sessionId="s1" status="idle" />)
-    await userEvent.click(await screen.findByText('a.ts'))
-    await userEvent.click(screen.getByRole('button', { name: 'Revert file' }))
+    await screen.findByText('a.ts')
+    await userEvent.click(screen.getByRole('button', { name: 'Revert src/a.ts' }))
     expect(api.revertFile).not.toHaveBeenCalled()
     await userEvent.click(screen.getByRole('button', { name: 'Revert' }))
     await waitFor(() => expect(api.revertFile).toHaveBeenCalledWith('s1', 'src/a.ts'))
   })
-  it('reverts one hunk by index', async () => {
-    render(<DiffPanel sessionId="s1" status="idle" />)
+  it('opens a file in a tab on click', async () => {
+    const onOpen = vi.fn()
+    render(<DiffPanel sessionId="s1" status="idle" onOpen={onOpen} />)
     await userEvent.click(await screen.findByText('a.ts'))
-    await userEvent.click(screen.getByRole('button', { name: 'Revert hunk 1' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Revert' }))
-    await waitFor(() => expect(api.revertHunk).toHaveBeenCalledWith('s1', 'src/a.ts', 0))
-    expect(api.revertFile).not.toHaveBeenCalled()
+    expect(onOpen).toHaveBeenCalledWith('src/a.ts')
   })
   it('disables Commit until there is a message', async () => {
     render(<DiffPanel sessionId="s1" status="idle" />)

@@ -3,7 +3,7 @@ import type { AgentEvent, PermissionMode, ProviderId, SessionStatus } from '../s
 
 export interface Project { id: string; path: string; name: string }
 export interface Account { id: string; provider: ProviderId; label: string; configDir: string | null }
-export interface UsageRow { sessionId: string; title: string | null; projectId: string; provider: string; createdAt: number; inputTokens: number; outputTokens: number; costUsd: number }
+export interface UsageRow { sessionId: string; title: string | null; projectId: string; provider: string; model: string | null; createdAt: number; inputTokens: number; outputTokens: number; costUsd: number }
 export interface Session {
   id: string
   projectId: string
@@ -18,11 +18,13 @@ export interface Session {
   createdAt: number
   title: string | null // user-chosen name; null = derived from the first message
   avatar?: string | null // JSON AvatarChoice; null = look derived from the id
+  effort?: string | null // reasoning effort; null = provider default
+  groupId?: string | null // sessions started from one prompt share this; null = standalone
 }
 export interface Usage { inputTokens: number; outputTokens: number; costUsd: number }
 
 // Append-only: MIGRATIONS[i] upgrades user_version i to i+1. Never edit a shipped step.
-const MIGRATIONS = ['ALTER TABLE sessions ADD COLUMN title TEXT', 'ALTER TABLE sessions ADD COLUMN avatar TEXT']
+const MIGRATIONS = ['ALTER TABLE sessions ADD COLUMN title TEXT', 'ALTER TABLE sessions ADD COLUMN avatar TEXT', 'ALTER TABLE sessions ADD COLUMN effort TEXT', 'ALTER TABLE sessions ADD COLUMN groupId TEXT']
 const SCHEMA_VERSION = MIGRATIONS.length + 1
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, path TEXT NOT NULL, name TEXT NOT NULL);
@@ -39,7 +41,7 @@ CREATE TABLE IF NOT EXISTS usage (
   outputTokens INTEGER NOT NULL DEFAULT 0, costUsd REAL NOT NULL DEFAULT 0
 );`
 
-const SESSION_COLS = ['projectId', 'provider', 'accountId', 'model', 'permissionMode', 'worktreePath', 'branch', 'status', 'resumeToken', 'createdAt', 'title', 'avatar'] as const
+const SESSION_COLS = ['projectId', 'provider', 'accountId', 'model', 'permissionMode', 'worktreePath', 'branch', 'status', 'resumeToken', 'createdAt', 'title', 'avatar', 'effort', 'groupId'] as const
 
 export function openDb(path: string) {
   const db = new DatabaseSync(path)
@@ -58,6 +60,7 @@ export function openDb(path: string) {
     close: () => db.close(),
     addProject: (p: Project) => void run('INSERT INTO projects (id, path, name) VALUES (?, ?, ?)', p.id, p.path, p.name),
     listProjects: () => all<Project>('SELECT * FROM projects'),
+    removeProject: (id: string) => void run('DELETE FROM projects WHERE id = ?', id),
     addAccount: (a: Account) =>
       void run('INSERT INTO accounts (id, provider, label, configDir) VALUES (?, ?, ?, ?)', a.id, a.provider, a.label, a.configDir),
     listAccounts: () => all<Account>('SELECT * FROM accounts'),
@@ -78,6 +81,8 @@ export function openDb(path: string) {
       all<{ json: string; ts: number }>('SELECT json, ts FROM events WHERE sessionId = ? ORDER BY id', sessionId).flatMap((r) => {
         try { return [{ ...JSON.parse(r.json), ts: r.ts } as AgentEvent] } catch { return [] } // one corrupt row must not hide the transcript
       }),
+    /** Time of the session's newest event, or null before it has any. */
+    lastEventTs: (sessionId: string) => all<{ ts: number }>('SELECT ts FROM events WHERE sessionId = ? ORDER BY id DESC LIMIT 1', sessionId)[0]?.ts ?? null,
     /** Chat messages (not streaming partials) containing `q`, newest first. */
     searchMessages: (q: string, limit = 50) =>
       all<{ sessionId: string; text: string }>(
@@ -96,7 +101,7 @@ export function openDb(path: string) {
       ),
     /** Every session that has spent anything, for the cost view. */
     listUsage: () =>
-      all<UsageRow>('SELECT u.sessionId, s.title, s.projectId, s.provider, s.createdAt, u.inputTokens, u.outputTokens, u.costUsd FROM usage u JOIN sessions s ON s.id = u.sessionId ORDER BY u.costUsd DESC'),
+      all<UsageRow>('SELECT u.sessionId, s.title, s.projectId, s.provider, s.model, s.createdAt, u.inputTokens, u.outputTokens, u.costUsd FROM usage u JOIN sessions s ON s.id = u.sessionId ORDER BY u.costUsd DESC'),
     getUsage: (sessionId: string): Usage =>
       all<Usage>('SELECT inputTokens, outputTokens, costUsd FROM usage WHERE sessionId = ?', sessionId)[0] ?? { inputTokens: 0, outputTokens: 0, costUsd: 0 },
   }

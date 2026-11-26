@@ -5,17 +5,21 @@ import { basename, dirname, join, relative, resolve, isAbsolute, sep } from 'nod
 import type { Account, Db, Session } from './db'
 import * as git from './git'
 import * as history from './history'
-import { getSettings } from './settings'
+import { getSettings, setSettings, userEnv } from './settings'
 import { transcriptMarkdown } from './transcript'
-import { checkTool } from './tools'
+import { agentInfo, branchPrefix, checkTool } from './tools'
 import { configEnv, copyTranscript, defaultConfigDir, loginCommand } from './accounts'
 import type { PtyManager } from './pty'
-import type { AccountInfo, AvatarChoice, AgentDeckApi, ModelInfo, NewSessionInput, ProjectInfo, SessionInfo } from '../shared/ipc'
+import { NOT_GIT, type AccountInfo, type AvatarChoice, type AgentDeckApi, type ModelInfo, type NewSessionInput, type ProjectInfo, type SessionInfo } from '../shared/ipc'
+import { sessionPort } from '../shared/types'
+import { CITIES, pickCity } from '../shared/cities'
 import type { AgentEvent, ApprovalDecision, ImageAttachment, LimitWindow, PermissionMode, ProviderAdapter, ProviderId, SessionStatus } from '../shared/types'
 
 interface Emitter {
   event(sessionId: string, e: AgentEvent): void
   session(s: SessionInfo): void
+  /** Create-project step that just started: 'folder' | 'git' | 'github' | 'add'. */
+  progress?(step: string): void
 }
 export interface SessionManagerDeps {
   db: Db
@@ -35,9 +39,10 @@ export interface SessionManagerDeps {
 }
 
 const TITLE_MAX = 60
+const CITY_SET = new Set(CITIES)
 const truncate = (t: string): string => (t.length > TITLE_MAX ? t.slice(0, TITLE_MAX - 1) + '…' : t)
 
-export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSessionUpdated' | 'getSettings' | 'setSettings' | 'onTermData' | 'onSelectSession' | 'pathForFile' | 'openFile'> {
+export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSessionUpdated' | 'onProjectProgress' | 'getSettings' | 'setSettings' | 'onTermData' | 'onSelectSession' | 'pathForFile' | 'openFile' | 'playSound' | 'addSound' | 'listSounds' | 'fullDiskAccess' | 'openDiskAccessSettings' | 'gitIdentity' | 'apiKeyStatus' | 'setApiKey' | 'openClaudeSettings'> {
   private active = new Set<string>() // sessions whose adapter is started this run
   private titles = new Map<string, string>()
 
@@ -46,13 +51,38 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
   async addProject(dropped?: string): Promise<ProjectInfo | null> {
     const path = dropped ?? await this.d.pickFolder?.()
     if (!path) return null
-    if (!(await git.isGitRepo(path))) throw new Error(`${path} is not a git repository`)
+    if (!(await git.isGitRepo(path))) throw new Error(`${path} ${NOT_GIT}`)
     const existing = this.d.db.listProjects().find((p) => p.path === path)
     if (existing) return existing
     const p = { id: randomUUID(), path, name: basename(path) }
     this.d.db.addProject(p)
     return p
   }
+  async initProject(path: string, github?: 'private' | 'public'): Promise<ProjectInfo | null> {
+    if (!(await git.isGitRepo(path))) await git.initRepo(path, github)
+    return this.addProject(path)
+  }
+  private worktreesRoot(): string { return getSettings().worktreesDir || this.d.worktreesDir }
+  async getWorktreesRoot(): Promise<string> { return this.worktreesRoot() }
+  async pickDirectory(): Promise<string | null> { return (await this.d.pickFolder?.()) ?? null }
+  async githubOwners(): Promise<string[]> { return git.githubOwners() }
+  async githubRepoAvailable(slug: string): Promise<boolean> { return git.repoAvailable(slug) }
+  async createProject(name: string, parent: string, github?: 'private' | 'public', repo?: string): Promise<ProjectInfo | null> {
+    const n = name.trim()
+    if (!n || /[/\\]/.test(n) || n.startsWith('.')) throw new Error(`Invalid project name: "${name}"`)
+    const path = join(parent, n)
+    const step = (s: string): void => this.d.emit.progress?.(s)
+    step('folder')
+    await mkdir(path, { recursive: true })
+    if (!(await git.isGitRepo(path))) {
+      step('git')
+      await git.initRepo(path)
+      if (github) { step('github'); await git.publishRepo(path, github, repo) }
+    }
+    step('add')
+    return this.addProject(path)
+  }
+  async cloneProject(repo: string, parent: string): Promise<ProjectInfo | null> { return this.addProject(await git.cloneRepo(repo, parent)) }
   /** Sessions mid-turn, not counting `except` (so a follow-up in a busy session isn't blocked by itself). */
   private running(except: string): number { return this.d.db.listProjects().flatMap((p) => this.d.db.listSessions(p.id)).filter((s) => s.status === 'working' && s.id !== except).length }
   hasWorking(): boolean { return this.d.db.listProjects().some((p) => this.d.db.listSessions(p.id).some((s) => s.status === 'working')) }
@@ -60,8 +90,15 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
   async listSessions(projectId: string): Promise<SessionInfo[]> {
     return this.d.db.listSessions(projectId).filter((s) => s.status !== ARCHIVED).map((s) => this.info(s))
   }
+  async listArchived(): Promise<SessionInfo[]> {
+    return this.d.db.listProjects().flatMap((p) => this.d.db.listSessions(p.id)).filter((s) => s.status === ARCHIVED).map((s) => this.info(s))
+  }
+  async restoreSession(sessionId: string): Promise<SessionInfo> {
+    this.d.db.updateSession(sessionId, { status: 'idle' })
+    return this.info(this.row(sessionId))
+  }
   async listModels(provider: ProviderId): Promise<ModelInfo[]> { return this.d.adapters[provider].listModels() }
-  async providerModes(provider: ProviderId): Promise<PermissionMode[]> { return [...this.d.adapters[provider].permissionModes] }
+  async providerModes(provider: ProviderId): Promise<PermissionMode[]> { return this.d.adapters[provider].permissionModes.filter((m) => m !== 'auto' || getSettings().autoMode) }
   async getEvents(sessionId: string): Promise<AgentEvent[]> { return this.d.db.listEvents(sessionId) }
   async getLimits(provider: ProviderId): Promise<LimitWindow[]> { return this.d.adapters[provider].getLimits() }
 
@@ -70,16 +107,18 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
     if (!project) throw new Error(`unknown project ${input.projectId}`)
     if (input.accountId) this.account(input.accountId, input.provider)
     const id = randomUUID()
-    const cfg = input.useWorktree ? await git.readAgentdeckConfig(project.path) : {}
+    const src = input.shareWorktreeOf ? this.row(input.shareWorktreeOf) : undefined
+    const cfg = input.useWorktree && !src ? await git.readAgentdeckConfig(project.path) : {}
     if (cfg.setup && this.d.confirmSetup && !(await this.d.confirmSetup(project.path, cfg.setup))) throw new Error('Setup script not approved')
-    let worktreePath: string | null = null
-    let branch: string | null = null
-    if (input.useWorktree) {
-      const wt = await git.addWorktree(project.path, `agentdeck/${id.slice(0, 8)}`, join(this.d.worktreesDir, project.name))
+    let worktreePath: string | null = src?.worktreePath ?? null
+    let branch: string | null = src?.branch ?? null
+    if (input.useWorktree && !src) {
+      const wt = await git.addWorktree(project.path, [await branchPrefix(), id.slice(0, 8)].filter(Boolean).join('/'), join(this.worktreesRoot(), project.name), input.baseRef ? await git.resolveBase(project.path, input.baseRef) : getSettings().repoGit[project.id]?.baseBranch || undefined)
       worktreePath = wt.path
       branch = wt.branch
       try {
-        const setup = await git.setupWorktree(project.path, wt.path, cfg)
+        const setup = await git.setupWorktree(project.path, wt.path, cfg, { ...userEnv(project.id), AGENTDECK_PORT: String(sessionPort(id)) })
+        this.setupLog.set(id, { output: setup.output, copied: setup.copied ?? 0 })
         if (setup.exitCode !== 0) throw new Error(`agentdeck.json setup failed (exit ${setup.exitCode}): ${setup.output}`)
       } catch (e) {
         await git.removeWorktree(project.path, wt.path, wt.branch).catch(() => {}) // don't leave a half-set-up worktree behind
@@ -88,8 +127,8 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
     }
     const row: Session = {
       id, projectId: project.id, provider: input.provider, accountId: input.accountId ?? null, model: input.model ?? null,
-      permissionMode: input.permissionMode, worktreePath, branch, status: 'idle', resumeToken: null, createdAt: Date.now(), title: input.title?.trim() || null,
-      avatar: input.avatar ? JSON.stringify(input.avatar) : null,
+      permissionMode: input.permissionMode, worktreePath, branch, status: 'idle', resumeToken: null, createdAt: Date.now(), title: input.title?.trim() || this.nextCity(),
+      avatar: input.avatar ? JSON.stringify(input.avatar) : null, groupId: input.groupId ?? null,
     }
     this.d.db.createSession(row)
     await this.start(row)
@@ -97,14 +136,27 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
     return this.info(this.row(id))
   }
 
+  /** Default name for a new session: a city no live session uses; prefers one never used before. */
+  private nextCity(): string {
+    const taken = this.d.db.listProjects().flatMap((p) => this.d.db.listSessions(p.id)).filter((s) => s.status !== ARCHIVED).map((s) => s.title ?? '')
+    const visited = getSettings().citiesVisited
+    const city = pickCity(taken, visited)
+    const base = city.replace(/ \d+$/, '')
+    if (!visited.includes(base)) setSettings({ citiesVisited: [...visited, base] })
+    return city
+  }
+
   async sendMessage(sessionId: string, text: string, images?: ImageAttachment[]): Promise<void> {
     const row = this.row(sessionId)
     const cap = getSettings().maxParallel
     if (cap > 0 && this.running(sessionId) >= cap) throw new Error(`Parallel limit reached (${cap}). Wait for a running session to finish, or raise the limit in Settings.`)
     if (!this.active.has(sessionId)) await this.start(row) // lazy resume after app restart
-    if (!this.titles.has(sessionId) && !this.d.db.listEvents(sessionId).some((e) => e.type === 'message' && e.role === 'user')) {
+    if (!this.d.db.listEvents(sessionId).some((e) => e.type === 'message' && e.role === 'user')) {
+      // First prompt names the session, unless the user already renamed it (anything but the default city).
+      if (row.title === null || CITY_SET.has(row.title.replace(/ \d+$/, ''))) this.d.db.updateSession(sessionId, { title: truncate(text) })
       this.titles.set(sessionId, truncate(text))
-      this.d.emit.session(this.info(row))
+      await this.autoRenameBranch(row, text)
+      this.d.emit.session(this.info(this.row(sessionId)))
     }
     // shortcut: a failed snapshot is only logged (the event model has no notice type); add a UI notice if rewinds go missing.
     await git.createCheckpoint(this.cwd(row), sessionId, text).catch((e) => console.error('checkpoint failed:', e))
@@ -128,13 +180,23 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
     return info
   }
 
-  async archiveSession(sessionId: string, removeWorktree: boolean): Promise<void> {
+  async archiveSession(sessionId: string, removeWorktreeArg: boolean): Promise<void> {
     const row = this.row(sessionId)
+    const shared = !!row.worktreePath && this.d.db.listSessions(row.projectId).some((s) => s.id !== sessionId && s.status !== ARCHIVED && s.worktreePath === row.worktreePath)
+    const removeWorktree = !shared && (removeWorktreeArg || getSettings().deleteBranchOnArchive) // deleting the branch needs the worktree gone first; another live session may still use it
     if (this.active.delete(sessionId)) await this.d.adapters[row.provider].close(sessionId)
     this.d.pty?.close(sessionId)
+    if (row.worktreePath && !shared) {
+      const project = this.d.db.listProjects().find((p) => p.id === row.projectId)
+      const archive = project && (await git.readAgentdeckConfig(project.path)).archive
+      if (archive) {
+        const r = await git.runScript(archive, row.worktreePath, { ...userEnv(row.projectId), AGENTDECK_PORT: String(sessionPort(sessionId)) })
+        if (r.exitCode !== 0) throw new Error(`Archive script failed (exit ${r.exitCode}): ${r.output}`)
+      }
+    }
     if (removeWorktree && row.worktreePath) {
       const project = this.d.db.listProjects().find((p) => p.id === row.projectId)
-      if (project) await git.removeWorktree(project.path, row.worktreePath, row.branch ?? undefined)
+      if (project) await git.removeWorktree(project.path, row.worktreePath, getSettings().deleteBranchOnArchive ? row.branch ?? undefined : undefined)
     }
     this.d.db.updateSession(sessionId, { status: ARCHIVED, ...(removeWorktree ? { worktreePath: null } : {}) })
   }
@@ -145,9 +207,10 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
     return cwd
   }
 
-  private async project(row: Session): Promise<ProjectInfo> {
-    const p = this.d.db.listProjects().find((p) => p.id === row.projectId)
-    if (!p) throw new Error(`unknown project ${row.projectId}`)
+  private async project(row: Session): Promise<ProjectInfo> { return this.projectById(row.projectId) }
+  private projectById(id: string): ProjectInfo {
+    const p = this.d.db.listProjects().find((p) => p.id === id)
+    if (!p) throw new Error(`unknown project ${id}`)
     return p
   }
   async sessionDiff(sessionId: string, scope: 'uncommitted' | 'branch'): Promise<git.DiffResult> {
@@ -173,6 +236,8 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
     events.forEach((e) => this.d.db.appendEvent(row.id, e))
     return this.info(row)
   }
+  async getProjectConfig(projectId: string): Promise<git.AgentdeckConfig> { return git.readAgentdeckConfig(this.projectPath(projectId)) }
+  async setProjectConfig(projectId: string, cfg: git.AgentdeckConfig): Promise<void> { await git.writeAgentdeckConfig(this.projectPath(projectId), cfg) }
   private projectPath(projectId: string): string {
     const p = this.d.db.listProjects().find((p) => p.id === projectId)
     if (!p) throw new Error(`unknown project ${projectId}`)
@@ -181,13 +246,58 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
   async listFiles(sessionId: string): Promise<string[]> { return git.listFiles(this.cwd(this.row(sessionId))) }
   async listCheckpoints(sessionId: string): Promise<git.Checkpoint[]> { return git.listCheckpoints(this.cwd(this.row(sessionId)), sessionId) }
   async checkTool(id: ProviderId | 'gh'): Promise<boolean> { return checkTool(id) }
+  agentInfo(id: ProviderId): ReturnType<typeof agentInfo> { return agentInfo(id) }
   async rewindPreview(sessionId: string, checkpointId: string): Promise<string[]> { return git.rewindPreview(this.cwd(this.row(sessionId)), sessionId, checkpointId) }
   async rewindSession(sessionId: string, checkpointId: string): Promise<void> {
     const row = this.row(sessionId)
     if (row.status === 'working') throw new Error('Stop the session before rewinding')
     await git.restoreCheckpoint(this.cwd(row), sessionId, checkpointId)
   }
-  async pushSession(sessionId: string): Promise<string> { return git.push(this.cwd(this.row(sessionId))) }
+  async pushSession(sessionId: string): Promise<string> {
+    const row = this.row(sessionId)
+    return git.push(this.cwd(row), getSettings().repoGit[row.projectId]?.remote || undefined, getSettings().repoPrefs[row.projectId]?.setUpstream ?? true)
+  }
+  async listRefs(projectId: string): Promise<{ branches: string[]; remotes: string[] }> { return git.listRefs(this.projectById(projectId).path) }
+  /** Forget a repository. Files stay on disk; refuses while it still has sessions so no history is orphaned. */
+  async removeProject(projectId: string): Promise<void> {
+    this.projectById(projectId)
+    if ((await this.listSessions(projectId)).length) throw new Error('Archive this repository\'s sessions first')
+    this.d.db.removeProject(projectId)
+  }
+  private setupLog = new Map<string, { output: string; copied: number }>()
+  async listArtifacts(sessionId: string): Promise<string[]> { return git.listArtifacts(this.cwd(this.row(sessionId))) }
+  async setupOutput(sessionId: string): Promise<{ output: string; copied: number }> { return this.setupLog.get(sessionId) ?? { output: '', copied: 0 } }
+  async projectRemoteUrl(projectId: string): Promise<string | null> { return git.remoteUrl(this.projectById(projectId).path) }
+  async prStatus(sessionId: string): Promise<git.PrStatus | null> {
+    const row = this.row(sessionId)
+    await this.syncBranch(row)
+    const pr = await git.prStatus(this.cwd(row))
+    const s = getSettings()
+    if (pr?.state === 'MERGED' && row.status !== ARCHIVED && (s.archiveOnMerge || s.repoPrefs[row.projectId]?.archiveOnMerge)) {
+      await this.archiveSession(sessionId, false)
+      this.d.emit.session(this.info(this.row(sessionId)))
+    }
+    return pr
+  }
+  async mergePr(sessionId: string, auto: boolean): Promise<string> {
+    if (auto && !getSettings().automerge) throw new Error('Automerge is turned off in Settings > Git')
+    return git.mergePr(this.cwd(this.row(sessionId)), auto)
+  }
+  /** Settings > Git "Automatically rename new branches": the first prompt names the worktree branch (prefix kept). */
+  private async autoRenameBranch(row: Session, text: string): Promise<void> {
+    const slug = git.branchSlug(text)
+    if (!getSettings().autoRenameBranches || !row.worktreePath || !row.branch || !slug) return
+    const name = [...row.branch.split('/').slice(0, -1), slug].join('/')
+    try { await git.renameBranch(row.worktreePath, name); this.d.db.updateSession(row.id, { branch: name }) } catch { /* name taken: keep the id branch */ }
+  }
+  /** Picks up a branch the agent renamed; "Rename session when branch is named" then retitles the session after it. */
+  private async syncBranch(row: Session): Promise<void> {
+    if (!row.worktreePath || !row.branch) return
+    const now = await git.currentBranch(row.worktreePath).catch(() => row.branch as string)
+    if (now === row.branch || now === 'HEAD') return
+    this.d.db.updateSession(row.id, { branch: now, ...(getSettings().renameSessionOnBranch ? { title: now.split('/').pop() } : {}) })
+    this.d.emit.session(this.info(this.row(row.id)))
+  }
   async createPr(sessionId: string, title: string, body: string): Promise<string> {
     if (!title.trim()) throw new Error('PR title is empty')
     return git.createPr(this.cwd(this.row(sessionId)), title, body)
@@ -247,13 +357,13 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
     }
   }
   /** Change model and/or permission mode; the adapter restarts (resuming the chat) on the next send. */
-  async configureSession(sessionId: string, opts: { model?: string | null; permissionMode?: PermissionMode }): Promise<SessionInfo> {
+  async configureSession(sessionId: string, opts: { model?: string | null; effort?: string | null; permissionMode?: PermissionMode }): Promise<SessionInfo> {
     const row = this.row(sessionId)
     if (row.status === 'working') throw new Error('Stop the turn before changing settings')
     const { permissionMode } = opts
     if (permissionMode && !this.d.adapters[row.provider].permissionModes.includes(permissionMode)) throw new Error(`${row.provider} has no ${permissionMode} mode`)
     if (this.active.delete(sessionId)) await this.d.adapters[row.provider].close(sessionId)
-    this.d.db.updateSession(sessionId, { ...(opts.model !== undefined ? { model: opts.model } : {}), ...(permissionMode ? { permissionMode } : {}) })
+    this.d.db.updateSession(sessionId, { ...(opts.model !== undefined ? { model: opts.model, ...(opts.effort === undefined ? { effort: null } : {}) } : {}), ...(opts.effort !== undefined ? { effort: opts.effort } : {}), ...(permissionMode ? { permissionMode } : {}) })
     const next = this.info(this.row(sessionId))
     this.d.emit.session(next)
     return next
@@ -300,7 +410,7 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
   async termOpen(sessionId: string): Promise<string> {
     if (!this.d.pty) throw new Error('terminal unavailable')
     if (sessionId.startsWith('login-')) return this.d.pty.open(sessionId, '') // already started by accountLogin
-    return this.d.pty.open(sessionId, this.cwd(this.row(sessionId)))
+    return this.d.pty.open(sessionId, this.cwd(this.row(sessionId)), { ...userEnv(this.row(sessionId).projectId), AGENTDECK_PORT: String(sessionPort(sessionId)) })
   }
   async termWrite(sessionId: string, data: string): Promise<void> { this.d.pty?.write(sessionId, data) }
   async termResize(sessionId: string, cols: number, rows: number): Promise<void> { this.d.pty?.resize(sessionId, cols, rows) }
@@ -310,7 +420,7 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
     this.active.add(row.id)
     try {
       await this.d.adapters[row.provider].start(
-        { sessionId: row.id, cwd, model: row.model ?? undefined, permissionMode: row.permissionMode, resumeToken: row.resumeToken ?? undefined, configDir: this.configDir(row) },
+        { sessionId: row.id, cwd, model: row.model ?? undefined, effort: row.effort ?? undefined, permissionMode: row.provider === 'claude' && getSettings().claudeToolApprovals && row.permissionMode !== 'plan' ? 'supervised' : row.permissionMode, resumeToken: row.resumeToken ?? undefined, configDir: this.configDir(row), env: userEnv(row.projectId) },
         (e) => this.onAdapterEvent(row.id, e),
       )
     } catch (e) {
@@ -355,8 +465,8 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
       this.titles.set(s.id, title)
     }
     return {
-      id: s.id, projectId: s.projectId, provider: s.provider, model: s.model ?? undefined, permissionMode: s.permissionMode,
-      accountId: s.accountId ?? undefined, worktreePath: s.worktreePath ?? undefined, branch: s.branch ?? undefined, status: s.status, title, createdAt: s.createdAt,
+      id: s.id, projectId: s.projectId, provider: s.provider, model: s.model ?? undefined, effort: s.effort ?? undefined, groupId: s.groupId ?? undefined, permissionMode: s.permissionMode,
+      accountId: s.accountId ?? undefined, worktreePath: s.worktreePath ?? undefined, branch: s.branch ?? undefined, status: s.status, title, createdAt: s.createdAt, lastActiveAt: this.d.db.lastEventTs(s.id) ?? s.createdAt,
       avatar: s.avatar ? (JSON.parse(s.avatar) as AvatarChoice) : undefined,
     }
   }

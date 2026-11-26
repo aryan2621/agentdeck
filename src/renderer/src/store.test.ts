@@ -6,7 +6,7 @@ const sendMessage = vi.fn().mockResolvedValue(undefined)
 vi.stubGlobal('window', Object.assign(window, { api: { sendMessage, onEvent: vi.fn() } }))
 const { actions, useStore } = await import('./store')
 
-const s = (status: SessionInfo['status']): SessionInfo => ({ id: 's1', projectId: 'p1', provider: 'claude', permissionMode: 'supervised', status, title: 't', createdAt: 0 })
+const s = (status: SessionInfo['status']): SessionInfo => ({ id: 's1', projectId: 'p1', provider: 'claude', permissionMode: 'supervised', status, title: 't', createdAt: 0, lastActiveAt: 0 })
 describe('queue', () => {
   it('sends one queued message when the turn ends, not before', () => {
     actions.upsertSession(s('working'))

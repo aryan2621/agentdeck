@@ -14,35 +14,35 @@ Test in light mode first, then repeat sections 1, 4 and 5 in dark mode (System S
 
 | # | What | How | Expected |
 |---|------|-----|----------|
-| 1.1 | Empty state | Launch with no projects | The main area has a 72px avatar, "Add your first project", an "Add project" button, and greyed-out Suggestions cards. |
-| 1.2 | Sidebar empty | Look at the sidebar | A highlighted "Add your first project" row and "No sessions yet" in the middle. "New session" is disabled. |
+| 1.1 | Empty state | Launch with no projects | The main area shows the Home tiles (Open project, Clone from GitHub, Quick start). |
+| 1.2 | Sidebar empty | Look at the sidebar | "No projects yet. Add one with the folder button above." "Create" is disabled. |
 | 1.3 | Add project | Click "Add project" and pick a git folder | The project appears in the sidebar. The main area becomes the New session form. |
+| 1.4 | Quick start | Home, Quick start, enter a name and parent folder, tick the private GitHub repo box, Create | A second dialog "Create a private GitHub repo?" asks for the Owner and repo name and says "Repository name is available." when free. Confirming shows a checklist ending in "Create workspace", then the first session opens. |
 
 ## 2. New session form
 
 | # | What | How | Expected |
 |---|------|-----|----------|
-| 2.1 | Layout | Open "New session" (pen-square button, ⌘N) | One centred column. Top: small avatar, "Customise look" menu, optional Name. Then the prompt (focused), a row of Provider · Model · Mode, the worktree checkbox, Cancel and Get started (shows a spinner while creating). Suggestions below. Model shows "Loading…" until the list arrives. |
-| 2.2 | Avatar picker | Click colours and shapes | The big avatar updates. The selected swatch has a ring. |
-| 2.3 | Keyboard on pickers | Focus a picker, press ← → | The selection moves. Tab leaves the group (one tab stop per group). |
-| 2.4 | Suggestion | Click "Fix a failing test" | The prompt box fills with that text. |
-| 2.5 | Disabled state | Clear the prompt | "Get started" is grey and cannot be clicked. |
-| 2.6 | Submit | Type a prompt, press ⌘↵ (or click Get started) | A session is created with the chosen name and avatar. The session view opens. |
-| 2.7 | Worktree | Tick "Work in a separate git worktree" and submit | The session shows a branch name. A worktree folder exists on disk. |
-| 2.8 | Cancel | Click Cancel | Back to the previous screen, nothing created. |
+| 2.1 | Layout | Open "New session" (⌘N) | A prompt box with compact pickers: project, agent, model, permission mode. Enter creates, Shift+Enter adds a line. |
+| 2.2 | Worktree | Toggle the worktree option and submit | The session shows a branch name. A worktree folder exists on disk. |
+| 2.3 | Disabled state | Clear the prompt | The submit button cannot be clicked. |
+| 2.4 | Submit | Type a prompt, press Enter | A session is created and its view opens. |
+| 2.5 | Create from | Project menu, "Create from...", enter a branch or PR number | A session opens whose worktree starts from that branch or PR. |
+| 2.6 | Dev port | In the session terminal run `echo $AGENTDECK_PORT` | A port number between 50000 and 59999, stable for that session. |
 
 ## 3. Sidebar and rail
 
 | # | What | How | Expected |
 |---|------|-----|----------|
-| 3.1 | Session row | Look at the new session | 32px avatar, title, time on the right, preview line, and `+/−` counts once files change. |
-| 3.2 | Search | Type part of a message in Search | A "Search results" list appears. Clicking a hit opens that session. Clearing the field restores the list. |
-| 3.3 | Filters | Focus Search | All, Needs you, Running pills appear. Each one filters the list. |
-| 3.4 | Pinned tiles | Have one session working or waiting | It appears as a big avatar tile above the list. |
-| 3.5 | Unread dot | Start a long task, switch to another session | A blue dot appears on the first session when the agent replies. Opening it clears the dot. |
+| 3.1 | Session row | Look at the new session | Avatar, title, and `+/-` counts once files change (if enabled in Appearance). |
+| 3.2 | Search | Type part of a message in Search (⌘F) | A "Search results" list appears. Clicking a hit opens that session. Clearing the field restores the list. |
+| 3.3 | Project menu | Hover a project, open its menu | Create session, Create from..., Configuration, Hide repository, Remove repository. |
+| 3.4 | Hide | Choose "Hide repository" | The project leaves the sidebar. Settings, General lists it under "Hidden repositories" with a Show button. |
+| 3.5 | Unread dot | Start a long task, switch to another session | The first session's title turns bold when the agent replies. Opening it clears that. |
 | 3.6 | Project group | Click a project name | The group collapses and expands. |
-| 3.7 | Rail | Press ⌘B | The sidebar shrinks to a 72px avatar rail. Hovering an avatar shows the title. Press ⌘B again to restore. |
-| 3.8 | Separate buttons | Look at the top | "New session" and "Add project" are two separate round buttons, not one menu. |
+| 3.7 | Rail | Press ⌘B | The sidebar shrinks to an avatar rail. Hovering an avatar shows the title. Press ⌘B again to restore. |
+| 3.8 | Help | Click the help (?) button in the footer | A menu with Keyboard shortcuts, Documentation and Report an issue. |
+| 3.9 | Revert hunk | Changes, a modified file, hover a hunk header, click revert | A confirm appears; confirming removes only that hunk. |
 
 ## 4. Avatar animation
 

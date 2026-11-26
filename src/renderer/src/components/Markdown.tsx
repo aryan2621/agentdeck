@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useStore } from '../store'
 import { createHighlighterCore, type HighlighterCore, type ThemedToken } from 'shiki/core'
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
 
@@ -11,12 +12,18 @@ const LANGS = {
   html: import('shiki/langs/html.mjs'), diff: import('shiki/langs/diff.mjs'), yaml: import('shiki/langs/yaml.mjs'), md: import('shiki/langs/markdown.mjs'),
   go: import('shiki/langs/go.mjs'), rust: import('shiki/langs/rust.mjs'), sql: import('shiki/langs/sql.mjs')
 }
-const THEMES = { light: 'github-light', dark: 'github-dark-default' }
+export const CODE_THEMES: Record<string, { light: string; dark: string }> = {
+  default: { light: 'github-light', dark: 'github-dark-default' },
+  solarized: { light: 'solarized-light', dark: 'solarized-dark' },
+  catppuccin: { light: 'catppuccin-latte', dark: 'catppuccin-mocha' },
+  'rose-pine': { light: 'rose-pine-dawn', dark: 'rose-pine' },
+}
+const themesOf = (id: string): { light: string; dark: string } => CODE_THEMES[id] ?? CODE_THEMES.default
 // JS regex engine: the WASM one needs 'wasm-unsafe-eval' in the CSP.
 let hl: Promise<HighlighterCore> | undefined
 const highlighter = (): Promise<HighlighterCore> =>
   (hl ??= createHighlighterCore({
-    themes: [import('shiki/themes/github-light.mjs'), import('shiki/themes/github-dark-default.mjs')],
+    themes: [import('shiki/themes/github-light.mjs'), import('shiki/themes/github-dark-default.mjs'), import('shiki/themes/solarized-light.mjs'), import('shiki/themes/solarized-dark.mjs'), import('shiki/themes/catppuccin-latte.mjs'), import('shiki/themes/catppuccin-mocha.mjs'), import('shiki/themes/rose-pine-dawn.mjs'), import('shiki/themes/rose-pine.mjs')],
     langs: Object.values(LANGS),
     engine: createJavaScriptRegexEngine()
   }))
@@ -25,28 +32,30 @@ const EXT: Record<string, string> = { mjs: 'js', cjs: 'js', yml: 'yaml', py: 'py
 /** Per-line shiki tokens for a file's text (null until ready or for unknown extensions). Colours are CSS vars, see app.css. */
 export function useTokens(code: string, path: string): ThemedToken[][] | null {
   const [lines, setLines] = useState<ThemedToken[][] | null>(null)
+  const codeTheme = useStore().settings.codeTheme
   const ext = path.split('.').pop() ?? ''
   const lang = EXT[ext] ?? ext
   useEffect(() => {
     let live = true
     highlighter().then((h) => {
-      if (live && lang in LANGS) setLines(h.codeToTokens(code, { lang, themes: THEMES, defaultColor: false }).tokens)
+      if (live && lang in LANGS) setLines(h.codeToTokens(code, { lang, themes: themesOf(codeTheme), defaultColor: false }).tokens)
     }, () => {})
     return () => { live = false }
-  }, [code, lang])
+  }, [code, lang, codeTheme])
   return lines
 }
 
 /** Highlighted block; shows plain text until shiki is ready or if the language is unknown. Colours follow the OS theme via CSS vars (app.css). */
-function CodeBlock({ code, lang }: { code: string; lang?: string }): React.JSX.Element {
+export function CodeBlock({ code, lang }: { code: string; lang?: string }): React.JSX.Element {
   const [html, setHtml] = useState('')
+  const codeTheme = useStore().settings.codeTheme
   useEffect(() => {
     let live = true
     highlighter().then((h) => {
-      if (live && lang && lang in LANGS) setHtml(h.codeToHtml(code, { lang, themes: THEMES, defaultColor: false }))
+      if (live && lang && lang in LANGS) setHtml(h.codeToHtml(code, { lang, themes: themesOf(codeTheme), defaultColor: false }))
     }, () => {})
     return () => { live = false }
-  }, [code, lang])
+  }, [code, lang, codeTheme])
   const [copied, setCopied] = useState(false)
   const copy = (): void => {
     void navigator.clipboard.writeText(code).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
@@ -70,7 +79,7 @@ function CodeBlock({ code, lang }: { code: string; lang?: string }): React.JSX.E
 
 export default function Markdown({ text }: { text: string }): React.JSX.Element {
   return (
-    <div className="flex flex-col gap-3 text-prose break-words [&_a]:text-link [&_li]:ml-4 [&_ol]:list-decimal [&_ul]:list-disc [&_table]:text-small [&_td]:border [&_td]:border-border [&_td]:px-2 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_h1]:text-title [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-semibold">
+    <div className="md-body flex flex-col gap-3 text-prose break-words [&_a]:text-link [&_li]:ml-4 [&_ol]:list-decimal [&_ul]:list-disc [&_ul]:flex [&_ul]:flex-col [&_ul]:gap-1 [&_ol]:flex [&_ol]:flex-col [&_ol]:gap-1 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_table]:text-small [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:bg-muted [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-semibold [&_h1]:text-title [&_h1]:font-semibold [&_h2]:text-prose [&_h2]:font-semibold [&_h3]:text-body [&_h3]:font-semibold">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -78,7 +87,7 @@ export default function Markdown({ text }: { text: string }): React.JSX.Element 
           code: ({ className, children }) => {
             const lang = /language-(\w+)/.exec(className ?? '')?.[1]
             const code = String(children)
-            return lang || code.includes('\n') ? <CodeBlock code={code.replace(/\n$/, '')} lang={lang} /> : <code className="rounded-sm bg-muted px-1 font-mono text-small">{children}</code>
+            return lang || code.includes('\n') ? <CodeBlock code={code.replace(/\n$/, '')} lang={lang} /> : <code className="rounded-sm border border-border bg-background px-1 font-mono text-small">{children}</code>
           }
         }}
       >

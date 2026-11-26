@@ -6,7 +6,9 @@ import { writeFile } from 'node:fs/promises'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { openDb } from './db'
-import { getSettings, loadSettings, setSettings } from './settings'
+import { getSettings, loadSettings, setSettings, setSoundsDir } from './settings'
+import { playSound, syncCaffeinate, syncTray } from './system'
+import { loadApiKeys } from './apiKeys'
 import { applyTheme, registerIpc, pickFolder } from './ipc'
 import { SessionManager } from './sessions'
 import { PtyManager } from './pty'
@@ -75,6 +77,7 @@ function createWindow(): void {
 app.whenReady().then(() => {
   // shortcut: unsigned builds can't auto-update on macOS; this only works once signing is set up. Errors are ignored (offline, no release yet).
   if (app.isPackaged) autoUpdater.checkForUpdatesAndNotify().catch(() => {})
+  autoUpdater.on('update-downloaded', () => { if (getSettings().restartOnUpdate) autoUpdater.quitAndInstall() })
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
 
@@ -87,6 +90,8 @@ app.whenReady().then(() => {
 
   adoptLoginShellPath()
   loadSettings(join(app.getPath('userData'), 'settings.json'))
+  loadApiKeys(join(app.getPath('userData'), 'apikeys.json'))
+  setSoundsDir(join(app.getPath('userData'), 'sounds'))
   applyTheme()
   const send = (channel: string, ...args: unknown[]): void => mainWindow?.webContents.send(channel, ...args)
   const needsYou = new Set<string>()
@@ -117,13 +122,17 @@ app.whenReady().then(() => {
     },
     pty,
     emit: {
+      progress: (step) => send('evt:project-progress', step),
       event: (id, e) => send('evt:event', id, e),
       session: (s) => {
         send('evt:session', s)
         if (s.status === 'needs-you') needsYou.add(s.id)
         else needsYou.delete(s.id)
         app.dock?.setBadge(needsYou.size ? String(needsYou.size) : '')
-        if (['done', 'needs-you', 'error'].includes(s.status) && getSettings().notify[s.status as 'done'] && !mainWindow?.isFocused()) {
+        syncCaffeinate(manager?.hasWorking() ?? false)
+        void syncDeck()
+        if (s.status === 'done' && getSettings().notifyAgents) playSound()
+        if (['done', 'needs-you', 'error'].includes(s.status) && getSettings().notifyAgents && getSettings().notify[s.status as 'done'] && !mainWindow?.isFocused()) {
           const n = new Notification({ title: { done: 'Session done', 'needs-you': 'Session needs you', error: 'Session failed' }[s.status as 'done'], body: s.title })
           n.on('click', () => { mainWindow?.show(); mainWindow?.focus(); send('evt:select', s.id) })
           n.show()
@@ -131,7 +140,13 @@ app.whenReady().then(() => {
       }
     }
   })
-  registerIpc(manager)
+  const syncDeck = async (): Promise<void> => syncTray(async () => {
+    const sessions = (await Promise.all((await manager!.listProjects()).map((p) => manager!.listSessions(p.id)))).flat().sort((a, b) => b.createdAt - a.createdAt).slice(0, 8)
+    const cost = (await manager!.usageSummary()).reduce((n, u) => n + u.costUsd, 0)
+    return { sessions, usage: `Spent $${cost.toFixed(2)} across all sessions` }
+  }, (id) => { mainWindow?.show(); mainWindow?.focus(); send('evt:select', id) })
+  registerIpc(manager, () => { syncCaffeinate(manager?.hasWorking() ?? false); void syncDeck() })
+  void syncDeck()
 
   // Items replay the renderer's own ⌘ shortcut (registerAccelerator:false keeps the key from firing twice).
   const key = (label: string, k: string): Electron.MenuItemConstructorOptions => ({

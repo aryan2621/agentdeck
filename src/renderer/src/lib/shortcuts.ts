@@ -8,9 +8,12 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'jump', keys: '⌘1–9', label: 'Switch to session by position' },
   { id: 'sidebar', keys: '⌘B', label: 'Collapse or expand the sidebar' },
   { id: 'search', keys: '⌘F', label: 'Search sessions' },
+  { id: 'settings', keys: '⌘,', label: 'Settings' },
   { id: 'panel', keys: '⌘\\', label: 'Show or hide the changes panel' },
+  { id: 'composer', keys: '⌘L', label: 'Focus the message box' },
+  { id: 'cycleEffort', keys: '⌘⇧/', label: 'Cycle reasoning effort' },
   { id: 'approve', keys: 'Y', label: 'Approve (when asked)' },
-  { id: 'always', keys: 'A', label: 'Always allow (when asked)' },
+  { id: 'always', keys: '⇧A', label: 'Always allow (when asked)' },
   { id: 'deny', keys: 'N', label: 'Deny (when asked)' },
   { id: 'close', keys: 'Esc', label: 'Close dialog or palette' },
 ]

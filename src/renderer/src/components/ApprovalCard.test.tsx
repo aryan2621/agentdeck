@@ -29,12 +29,12 @@ describe('ApprovalCard keyboard', () => {
     await userEvent.keyboard('y')
     expect(respond).not.toHaveBeenCalled()
   })
-  it('Escape denies, a always-allows', async () => {
+  it('Escape does not deny, A (shift) always-allows, bare a does nothing', async () => {
     card()
-    await userEvent.keyboard('{Escape}')
-    expect(respond).toHaveBeenCalledWith('s1', 'a1', { allow: false, always: false })
-    cleanup(); respond.mockClear(); card()
-    await userEvent.keyboard('a')
+    await userEvent.keyboard('{Escape}a')
+    expect(respond).not.toHaveBeenCalled()
+    cleanup(); card()
+    await userEvent.keyboard('A')
     expect(respond).toHaveBeenCalledWith('s1', 'a1', { allow: true, always: true })
   })
   it('Always allow button approves with always', async () => {

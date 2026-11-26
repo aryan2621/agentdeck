@@ -3,11 +3,12 @@
 @import '@fontsource-variable/geist-mono';
 
 /* Surface ladder: chrome (window, sidebar) < background (work surface) < panel (raised) < overlay (menus).
-   Pure neutral greys (Grok Bot look). Chrome is neutral: the primary action is the inverted foreground.
+   Warm near-neutral greys (Conductor look); in dark, chrome (sidebar, side panel) is one step lighter than the work surface. Chrome is neutral: the primary action is the inverted foreground.
    Colour is reserved for status (needs-you, ok, error, diff) and per-project hues (--project-N). */
 :root {
-  --chrome: oklch(0.97 0 0); --background: oklch(0.985 0 0); --panel: oklch(0.955 0 0); --card: oklch(0.955 0 0); --overlay: oklch(1 0 0);
-  --foreground: oklch(0.18 0 0); --muted: oklch(0.935 0 0); --muted-foreground: oklch(0.48 0 0); --faint: oklch(0.5 0 0);
+  --h-l: 85; --h-d: 60; --t: 1;
+  --chrome: oklch(0.987 calc(0.004 * var(--t)) var(--h-l)); --background: oklch(1 calc(0.003 * var(--t)) var(--h-l)); --panel: oklch(0.975 calc(0.004 * var(--t)) var(--h-l)); --overlay: oklch(1 0 0);
+  --foreground: oklch(0.18 calc(0.004 * var(--t)) var(--h-l)); --muted: oklch(0.935 calc(0.005 * var(--t)) var(--h-l)); --muted-foreground: oklch(0.45 0 0); --faint: oklch(0.46 0 0);
   --border: rgba(0, 0, 0, 0.08); --input: rgba(0, 0, 0, 0.16);
   --primary: oklch(0.15 0 0); --primary-foreground: oklch(0.985 0 0); --accent: rgba(0, 0, 0, 0.055); --ring: oklch(0.35 0 0);
   --link: oklch(0.5 0.17 260); --scrim: rgba(0, 0, 0, 0.25);
@@ -15,14 +16,16 @@
   --add: oklch(0.5 0.12 150 / 0.13); --del: oklch(0.55 0.19 25 / 0.12);
   --project-0: oklch(0.58 0.13 30); --project-1: oklch(0.58 0.13 70); --project-2: oklch(0.58 0.13 110); --project-3: oklch(0.58 0.13 155);
   --project-4: oklch(0.58 0.13 195); --project-5: oklch(0.58 0.13 235); --project-6: oklch(0.58 0.13 275); --project-7: oklch(0.58 0.13 330);
+  --avatar-ink: #fff;
   --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.12);
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --chrome: oklch(0.17 0 0); --background: oklch(0.2 0 0); --panel: oklch(0.25 0 0); --card: oklch(0.25 0 0); --overlay: oklch(0.26 0 0);
-    --foreground: oklch(0.95 0 0); --muted: oklch(0.28 0 0); --muted-foreground: oklch(0.73 0 0); --faint: oklch(0.68 0 0);
-    --border: rgba(255, 255, 255, 0.07); --input: rgba(255, 255, 255, 0.13);
+    --avatar-ink: oklch(0.2 0 0);
+    --chrome: oklch(0.205 calc(0.004 * var(--t)) var(--h-d)); --background: oklch(0.17 calc(0.004 * var(--t)) var(--h-d)); --panel: oklch(0.205 calc(0.004 * var(--t)) var(--h-d)); --overlay: oklch(0.225 calc(0.005 * var(--t)) var(--h-d));
+    --foreground: oklch(0.95 calc(0.004 * var(--t)) var(--h-d)); --muted: oklch(0.255 calc(0.006 * var(--t)) var(--h-d)); --muted-foreground: oklch(0.73 calc(0.004 * var(--t)) var(--h-d)); --faint: oklch(0.68 calc(0.004 * var(--t)) var(--h-d));
+    --border: rgba(255, 245, 235, 0.09); --input: rgba(255, 245, 235, 0.15);
     --primary: oklch(0.96 0 0); --primary-foreground: oklch(0.18 0 0); --accent: rgba(255, 255, 255, 0.06); --ring: oklch(0.78 0 0);
     --link: oklch(0.72 0.14 255); --scrim: rgba(0, 0, 0, 0.4);
     --ok: oklch(0.78 0.12 150); --warn: oklch(0.82 0.15 80); --destructive: oklch(0.72 0.15 22);
@@ -32,21 +35,43 @@
     --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.4);
   }
 }
+
+/* Default surfaces sampled from the supplied light and dark desktop references. */
+:root[data-color-theme="default"] {
+  --chrome: #fdfcfc; --background: #ffffff; --panel: #f7f6f5; --overlay: #ffffff;
+  --foreground: #2b2826; --muted: #f0eeee; --muted-foreground: #79716d; --faint: #79716d;
+  --border: #eae8e6; --input: #e2dedb; --accent: #f0eeee;
+  --primary: #2b2826; --primary-foreground: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-color-theme="default"] {
+    --chrome: #1b1917; --background: #141110; --panel: #201e1c; --overlay: #2a2725;
+    --foreground: #ebe7e4; --muted: #292623; --muted-foreground: #aaa29d; --faint: #aaa29d;
+    --border: #2b2826; --input: #403b38; --accent: #292623;
+    --primary: #ebe7e4; --primary-foreground: #201e1c;
+  }
+}
+
+:root[data-low-contrast] { --foreground: oklch(0.84 0.004 var(--h-d)); --muted-foreground: oklch(0.64 0.004 var(--h-d)); --faint: oklch(0.58 0.004 var(--h-d)); --border: rgba(255, 245, 235, 0.06); }
+@media (prefers-color-scheme: light) { :root[data-low-contrast] { --foreground: oklch(0.18 0.004 85); --muted-foreground: oklch(0.45 0 0); --faint: oklch(0.46 0 0); --border: rgba(0, 0, 0, 0.08); } }
+/* Colour-blind safe: status pairs use blue/orange instead of green/red. */
+:root[data-accessible="colorblind"] { --ok: oklch(0.55 0.15 250); --destructive: oklch(0.62 0.17 55); --add: oklch(0.55 0.15 250 / 0.14); --del: oklch(0.62 0.17 55 / 0.14); }
+@media (prefers-color-scheme: dark) { :root[data-accessible="colorblind"] { --ok: oklch(0.75 0.13 250); --destructive: oklch(0.78 0.15 55); --add: oklch(0.75 0.13 250 / 0.16); --del: oklch(0.78 0.15 55 / 0.16); } }
 @theme inline {
   --color-background: var(--background); --color-foreground: var(--foreground);
-  --color-chrome: var(--chrome); --color-overlay: var(--overlay); --color-panel: var(--panel); --color-card: var(--card); --color-muted: var(--muted);
+  --color-chrome: var(--chrome); --color-overlay: var(--overlay); --color-panel: var(--panel); --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground); --color-faint: var(--faint); --color-border: var(--border); --color-input: var(--input);
   --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground);
   --color-accent: var(--accent); --color-ring: var(--ring); --color-link: var(--link); --color-scrim: var(--scrim);
-  --color-ok: var(--ok); --color-warn: var(--warn); --color-needs: var(--warn); --color-destructive: var(--destructive);
+  --color-ok: var(--ok); --color-warn: var(--warn); --color-destructive: var(--destructive);
   --color-add: var(--add); --color-del: var(--del);
   --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
   --font-mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace;
-  --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-xl: 12px; --radius-2xl: 16px; --radius-3xl: 24px;
+  --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px;
   --shadow-overlay: var(--shadow-overlay);
   --text-meta: 11px; --text-meta--line-height: 1.4;
   --text-small: 12px; --text-small--line-height: 1.5;
-  --text-body: 13px; --text-body--line-height: 1.5;
+  --text-body: 14px; --text-body--line-height: 1.5;
   --text-prose: 14px; --text-prose--line-height: 1.6;
   --text-title: 16px; --text-title--line-height: 1.4; --text-title--font-weight: 600;
 }
@@ -56,8 +81,10 @@
   body { @apply bg-background font-sans text-body leading-normal text-foreground antialiased; }
   :focus-visible { @apply outline-2 outline-offset-1 outline-ring; }
   ::selection { background: var(--primary); color: var(--primary-foreground); }
+  .bg-primary ::selection, .bg-primary::selection { background: var(--primary-foreground); color: var(--primary); }
   .tnum { font-variant-numeric: tabular-nums; }
   button { cursor: default; }
+  .pointer-ui :is(button, [role=radio], [role=tab], [role=combobox], label:has(input)):not(:disabled, [aria-disabled=true]) { cursor: pointer; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
@@ -70,7 +97,7 @@
 @keyframes orbit { to { transform: rotate(360deg); } }
 .shimmer { color: var(--muted-foreground); animation: pulse-text 1.8s ease-in-out infinite; }
 /* One motion rhythm for every state change. */
-:where(button, a, input, textarea, select, [role]) { transition-duration: 120ms; transition-timing-function: ease-out; }
+:where(button, a, input, textarea, select, [role]) { transition-property: color, background-color, border-color, opacity; transition-duration: 120ms; transition-timing-function: ease-out; }
 
 /* Scrolls without a visible bar (chat log). */
 @utility no-scrollbar {
@@ -81,3 +108,27 @@
 @keyframes logo-bar { 0%, 100% { opacity: 0.25 } 40% { opacity: 1 } }
 .logo-bar { animation: logo-bar 0.9s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .logo-bar { animation: none; opacity: 0.6; } }
+
+/* Reference-aligned desktop chrome. Alternate palettes still use the shared hue tokens. */
+.workspace-tab { border-bottom-color: var(--link); }
+[role="tab"][aria-selected="true"] { font-weight: 500; }
+.settings-page { max-width: 976px; padding: 28px 40px 48px; }
+.settings-page > header { margin-bottom: 4px; }
+.settings-page [data-settings-row] { padding-block: 24px; }
+.settings-page [data-settings-row] > div:first-child > div:first-child { font-weight: 400; }
+.settings-page [data-settings-row] > div:first-child > div + div { margin-top: 5px; }
+.settings-page [data-settings-row] [role=combobox] { min-width: 140px; }
+.settings-page [data-settings-row] input:not([type=radio]) { min-width: 0; }
+@media (max-width: 1100px) {
+  .settings-page { padding-inline: 28px; }
+  .settings-page [data-settings-row] { flex-wrap: wrap; }
+}
+@media (max-width: 960px) {
+  .settings-page { padding-inline: 24px; }
+  .settings-page [data-settings-row] > div:last-child { max-width: 100%; }
+}
+
+/* Typography settings (lib/fonts.ts): code ligatures and markdown style. */
+html[data-no-ligatures] .font-mono, html[data-no-ligatures] .shiki-host { font-variant-ligatures: none; font-feature-settings: 'liga' 0, 'calt' 0; }
+html[data-markdown='serif'] .md-body { font-family: ui-serif, Georgia, 'Times New Roman', serif; }
+html[data-markdown='compact'] .md-body { font-size: 12px; line-height: 1.4; gap: 8px; }

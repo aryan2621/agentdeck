@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module'
-import { cliPath } from '../settings'
+import { cliPath, getSettings, userEnv } from '../settings'
+import { apiKeyEnv } from '../apiKeys'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { Options, Query, SDKMessage, SDKUserMessage, PermissionResult } from '@anthropic-ai/claude-agent-sdk'
 import type {
@@ -21,7 +22,8 @@ const SDK_MODES: Record<PermissionMode, Options['permissionMode']> = {
   supervised: 'default',
   'auto-edit': 'acceptEdits',
   'full-access': 'bypassPermissions',
-  plan: 'plan'
+  plan: 'plan',
+  auto: 'auto'
 }
 const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 
@@ -66,8 +68,10 @@ interface Session {
 // "Always allow" granularity: the tool, plus the program name for Bash (so `git status` also allows `git log`).
 const approvalKey = (name: string, inp: Record<string, unknown>): string => (name === 'Bash' ? `Bash:${String(inp.command ?? '').trim().split(/\s+/)[0]}` : name)
 
-const envFor = (configDir?: string): Options['env'] => ({
+const envFor = (configDir?: string, env: Record<string, string> = userEnv()): Options['env'] => ({
   ...process.env,
+  ...apiKeyEnv('claude'),
+  ...env,
   ...(configDir ? { CLAUDE_CONFIG_DIR: configDir } : {})
 })
 
@@ -137,11 +141,11 @@ export function createClaudeProvider(queryFn: QueryFn = query as QueryFn): Provi
 
   return {
     id: 'claude',
-    permissionModes: ['supervised', 'auto-edit', 'full-access', 'plan'],
+    permissionModes: ['supervised', 'auto-edit', 'full-access', 'plan', 'auto'],
 
     async listModels(configDir) {
       const ms = await probe(configDir, (q) => q.supportedModels())
-      return ms.map((m) => ({ id: m.value, label: m.displayName }))
+      return ms.map((m) => ({ id: m.value, label: m.displayName, ...(m.supportsEffort ? { efforts: m.supportedEffortLevels ?? ['low', 'medium', 'high'] } : {}) }))
     },
 
     async start(opts: StartOptions, onEvent) {
@@ -152,15 +156,17 @@ export function createClaudeProvider(queryFn: QueryFn = query as QueryFn): Provi
       const options: Options = {
         cwd: opts.cwd,
         model: opts.model,
+        ...(opts.effort ? { effort: opts.effort as Options['effort'] } : {}),
         pathToClaudeCodeExecutable: claudeExe(),
         resume: opts.resumeToken,
-        env: envFor(opts.configDir),
+        env: envFor(opts.configDir, opts.env),
         permissionMode: SDK_MODES[opts.permissionMode],
         allowDangerouslySkipPermissions: opts.permissionMode === 'full-access',
         includePartialMessages: true,
+        ...(getSettings().claudeChrome ? { extraArgs: { chrome: null } } : {}),
         // Without these the SDK ignores CLAUDE.md, skills, hooks and the Claude Code system prompt.
         settingSources: ['user', 'project', 'local'],
-        systemPrompt: { type: 'preset', preset: 'claude_code' },
+        systemPrompt: { type: 'preset', preset: 'claude_code', ...(getSettings().ghStack ? { append: 'You can use `gh stack` for stacked PRs.' } : {}) },
         canUseTool:
           (opts.permissionMode === 'supervised' || opts.permissionMode === 'plan') // plan: ExitPlanMode arrives as an approval card
             ? (name, inp) =>

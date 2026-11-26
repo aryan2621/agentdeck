@@ -1,5 +1,6 @@
 export const STARTERS = [
-  { title: 'Understand this repo', hint: 'Maps the structure and how to run it', prompt: 'Read this repository and explain its structure, how to run it, and where to start making changes.' },
-  { title: 'Fix a failing test', hint: 'Runs the suite and repairs what breaks', prompt: 'Run the tests, find the first failing one, and fix the cause.' },
-  { title: 'Review my changes', hint: 'Looks over uncommitted work for bugs', prompt: 'Review my uncommitted changes and list bugs or risky code, most serious first.' }
+  { title: 'Review recent PRs', hint: 'Summarises recent pull requests and flags risks', prompt: 'Review the most recent pull requests in this repository and list bugs or risky changes, most serious first.' },
+  { title: 'Improve agent instructions', hint: 'Tightens CLAUDE.md / AGENTS.md', prompt: 'Read this repository and improve its agent instructions file (CLAUDE.md or AGENTS.md, create one if missing) so an agent knows how to build, test and where things live.' },
+  { title: 'Fix a TODO', hint: 'Picks one TODO comment and resolves it', prompt: 'Find a TODO or FIXME comment in this codebase, pick the most valuable one, and fix it.' },
+  { title: 'Read the docs', hint: 'Walks through the repo documentation', prompt: 'Read the documentation in this repository (README and docs) and summarise how it works and where to start making changes.' }
 ]

@@ -1,57 +1,33 @@
 import { useEffect, useState } from 'react'
+import { CornerDownLeft, GitBranch, Plus, X } from 'lucide-react'
 import { PROVIDERS, hasAccounts, type PermissionMode, type ProviderId } from '../../../shared/types'
 import { actions, useStore } from '../store'
 import { Button } from './ui/button'
-import { Checkbox } from './ui/checkbox'
-import { Field } from './ui/field'
-import { Input, Textarea } from './ui/input'
-import Avatar, { COLORS, SHAPES } from './Avatar'
-import { STARTERS } from '../lib/starters'
+import { Textarea } from './ui/input'
+import { COLORS, SHAPES, ProjectAvatar } from './Avatar'
+import ProviderIcon from './ProviderIcon'
+import { DialogShell, DialogTitle } from './ui/dialog'
+import { Pick } from './ui/pick'
+import { MODES, MODE_LABEL } from '../lib/modes'
 import { cn } from '../lib/utils'
-import { Select } from './ui/select'
-import { Kbd } from './ui/kbd'
-import { Menu, MenuContent, MenuTrigger } from './ui/menu'
-import { MODES } from '../lib/modes'
-import { ModeSelector } from './ModeSelector'
 
-
-/** Roving-tabindex radio row; arrow keys move and select. */
-function Picker({ label, count, value, onChange, children }: { label: string; count: number; value: number; onChange: (i: number) => void; children: (i: number, on: boolean) => React.ReactNode }): React.JSX.Element {
-  const key = (e: React.KeyboardEvent): void => {
-    const d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
-    if (!d) return
-    e.preventDefault()
-    const n = (value + d + count) % count
-    onChange(n)
-    ;(e.currentTarget.children[n] as HTMLElement).focus()
-  }
-  return (
-    <div role="radiogroup" aria-label={label} onKeyDown={key} className="flex flex-wrap justify-center gap-2">
-      {Array.from({ length: count }, (_, i) => (
-        <button key={i} type="button" role="radio" aria-checked={i === value} aria-label={`${label} ${i + 1}`} tabIndex={i === value ? 0 : -1} onClick={() => onChange(i)}
-          className={cn('flex size-8 items-center justify-center rounded-lg border border-transparent', i === value && 'border-border bg-muted')}>
-          {children(i, i === value)}
-        </button>
-      ))}
-    </div>
-  )
-}
-
+/** Quick create: a prompt box with the project, agent, model and permission mode as compact pickers. Enter creates; Shift+Enter is a new line. */
 export default function NewSessionForm({ projectId }: { projectId: string }): React.JSX.Element {
-  const { accounts, forkText, settings, catalog } = useStore()
+  const { accounts, forkText, settings, catalog, projects } = useStore()
+  const [pid, setPid] = useState(projectId)
   const [provider, setProvider] = useState<ProviderId>(settings.defaultProvider)
+  const [accountId, setAccountId] = useState('')
   const entry = catalog[provider]
   const models = entry?.models ?? []
   const modes = entry?.modes.length ? entry.modes : MODES
-  const loading = !entry
   const [model, setModel] = useState('')
   const [mode, setMode] = useState<PermissionMode>('supervised')
   const [useWorktree, setUseWorktree] = useState(true)
-  const [accountId, setAccountId] = useState('')
   const [msg, setMsg] = useState(forkText)
   const [busy, setBusy] = useState(false)
-  const [name, setName] = useState('')
-  const [look, setLook] = useState(() => ({ color: Math.floor(Math.random() * COLORS.length), shape: Math.floor(Math.random() * SHAPES.length) }))
+  /** Extra agents that get the same prompt, each in its own worktree. */
+  const [extras, setExtras] = useState<{ provider: ProviderId; account: string; model: string }[]>([])
+  const [look] = useState(() => ({ color: Math.floor(Math.random() * COLORS.length), shape: Math.floor(Math.random() * SHAPES.length) }))
 
   useEffect(() => { // defaults for the chosen provider, once its models are known
     if (!entry) return
@@ -59,71 +35,69 @@ export default function NewSessionForm({ projectId }: { projectId: string }): Re
     setModel(m.find((x) => x.id === settings.defaultModels[provider])?.id ?? m[0]?.id ?? ''); setMode(pm.includes(settings.defaultMode) ? settings.defaultMode : (pm[0] ?? 'supervised'))
   }, [provider, entry])
 
-  const submit = async (e: React.FormEvent): Promise<void> => {
-    e.preventDefault()
+  const submit = async (e?: React.FormEvent): Promise<void> => {
+    e?.preventDefault()
+    if (!msg.trim() || busy) return
     setBusy(true)
     try {
-      const s = await window.api.createSession({
-        projectId, provider, model: model || undefined, permissionMode: mode, useWorktree, accountId: accountId || undefined,
-        firstMessage: msg.trim() || undefined, title: name.trim() || undefined, avatar: look
-      })
-      actions.upsertSession(s)
-      actions.select(s.id)
+      const groupId = extras.length ? crypto.randomUUID() : undefined
+      let first: string | undefined
+      // One at a time: parallel `git worktree add` calls on one repo race on its lock.
+      for (const run of [{ provider, account: accountId, model }, ...extras]) {
+        const s = await window.api.createSession({ projectId: pid, provider: run.provider, model: run.model || undefined, permissionMode: mode, useWorktree: useWorktree || !!groupId, accountId: run.account || undefined, firstMessage: msg.trim(), avatar: first ? undefined : look, groupId })
+        actions.upsertSession(s)
+        first ??= s.id
+      }
+      actions.select(first!)
     } catch (err) {
       actions.fail(err)
       setBusy(false)
     }
   }
 
-  const go = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => e.currentTarget.form?.requestSubmit()
+  const project = projects.find((p) => p.id === pid)
+  // One list for the agent picker: each provider's default login, then its saved accounts.
+  const agents = PROVIDERS.flatMap((p) => [
+    { id: `${p.id}:`, label: `${p.label}`, provider: p.id, account: '' },
+    ...(hasAccounts(p.id) ? accounts.filter((a) => a.provider === p.id).map((a) => ({ id: `${p.id}:${a.id}`, label: `${p.label} · ${a.label}`, provider: p.id, account: a.id })) : [])
+  ])
+  const risky = mode === 'full-access'
   return (
-    <form className="flex min-h-0 flex-1 flex-col overflow-y-auto" onSubmit={submit}>
-      <div className="mx-auto mt-auto flex w-full max-w-[640px] flex-col gap-4 px-8 pt-12 pb-6">
-        <div className="flex items-center gap-3">
-          <Avatar seed={projectId} avatar={look} size={40} />
-          <Menu>
-            <MenuTrigger asChild><Button type="button" variant="ghost" size="sm">Customise look</Button></MenuTrigger>
-            <MenuContent>
-              <div className="flex flex-col gap-2 p-2">
-                <Picker label="Colour" count={COLORS.length} value={look.color} onChange={(color) => setLook({ ...look, color })}>
-                  {(i) => <span className="size-5 rounded-full" style={{ background: COLORS[i] }} />}
-                </Picker>
-                <Picker label="Shape" count={SHAPES.length} value={look.shape} onChange={(shape) => setLook({ ...look, shape })}>
-                  {(i, on) => <span className={cn('size-5', on ? 'bg-foreground' : 'bg-faint')} style={{ borderRadius: SHAPES[i] }} />}
-                </Picker>
-              </div>
-            </MenuContent>
-          </Menu>
-          <Input aria-label="Name (optional)" placeholder="Name (optional)" className="ml-auto max-w-64" value={name} onChange={(e) => setName(e.target.value)} />
+    <DialogShell open onOpenChange={(o) => !o && actions.closeNew()} className="top-[18%] left-1/2 w-[min(44rem,92vw)] -translate-x-1/2 overflow-hidden">
+      <DialogTitle className="sr-only">New session</DialogTitle>
+      <form onSubmit={submit} className="flex flex-col">
+        <div className="flex h-12 items-center gap-1 border-b border-border px-3">
+          <Pick label="Project" align="start" value={pid} onPick={setPid} options={projects.map((p) => ({ id: p.id, label: p.name }))} className="text-foreground">
+            <ProjectAvatar name={project?.name ?? ''} size={20} /><span className="text-prose font-medium">{project?.name}</span>
+          </Pick>
+            <Button type="button" variant="ghost" size="icon" aria-label="Separate git worktree" aria-pressed={useWorktree} className={cn(useWorktree ? 'text-foreground' : 'text-faint')} onClick={() => setUseWorktree(!useWorktree)}><GitBranch /></Button>
+          <Pick label="Agent" className="ml-auto" value={`${provider}:${accountId}`} options={agents} onPick={(id) => { const a = agents.find((x) => x.id === id); if (a) { setProvider(a.provider); setAccountId(a.account) } }}>
+            <ProviderIcon id={provider} />
+          </Pick>
         </div>
-        <Field label="What should it do?" className="w-full">
-          <Textarea autoFocus rows={5} className="bg-panel text-prose focus-visible:ring-1" value={msg} onChange={(e) => setMsg(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) go(e) }} />
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Provider"><Select label="Provider" className="w-full" value={provider} onChange={(v) => { setProvider(v as ProviderId); setAccountId('') }} options={PROVIDERS.map((p) => ({ value: p.id, label: p.label }))} /></Field>
-          <Field label="Model"><Select label="Model" className="w-full" value={model} onChange={setModel} options={loading ? [{ value: '', label: 'Loading…' }] : models.length ? models.map((m) => ({ value: m.id, label: m.label })) : [{ value: '', label: 'Provider default' }]} /></Field>
-          {hasAccounts(provider) && <Field label="Account"><Select label="Account" className="w-full" value={accountId} onChange={setAccountId} options={[{ value: '', label: 'Default login' }, ...accounts.filter((a) => a.provider === provider).map((a) => ({ value: a.id, label: a.label }))]} /></Field>}
-          <div className="col-span-2 flex flex-col"><span className="mb-1 text-small font-medium text-muted-foreground">Permission mode</span><ModeSelector value={mode} modes={modes} onChange={setMode} /></div>
-        </div>
-        <label className="flex items-center gap-2 text-small text-muted-foreground">
-          <Checkbox checked={useWorktree} onCheckedChange={(c) => setUseWorktree(c === true)} />Work in a separate git worktree
-        </label>
-        <div className="flex items-center justify-between gap-3">
-          <Button type="button" variant="ghost" onClick={actions.closeNew}>Cancel</Button>
-          <Button type="submit" loading={busy}>Get started<Kbd className="bg-primary-foreground/15 text-primary-foreground">⌘↵</Kbd></Button>
-        </div>
-      </div>
-      <div className="mx-auto mb-auto flex w-full max-w-[640px] flex-col gap-2 px-8 pb-10">
-        <span className="text-small text-faint">Suggestions</span>
-        <div className="flex flex-col divide-y divide-border border-t border-border">
-          {STARTERS.map((s) => (
-            <button key={s.title} type="button" onClick={() => setMsg(s.prompt)} className="flex items-baseline gap-3 px-2 py-2 text-left transition-colors duration-100 hover:bg-accent focus-visible:bg-accent">
-              <span className="text-body font-medium text-foreground">{s.title}</span>
-              <span className="text-small text-muted-foreground">{s.hint}</span>
-            </button>
+        <Textarea
+          autoFocus rows={7} aria-label="What should it do?" placeholder="Describe what to do…" value={msg} onChange={(e) => setMsg(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void submit() } }}
+          className="resize-none rounded-none border-0 bg-transparent px-4 py-3 text-prose focus-visible:outline-none"
+        />
+        <div className="flex items-center gap-1 px-3 py-2">
+          <Pick label="Model" align="start" value={model} onPick={setModel} options={models.length ? models.map((m) => ({ id: m.id, label: m.label })) : [{ id: '', label: entry ? 'Provider default' : 'Loading…' }]}>
+            <span className="text-prose text-foreground">{models.find((m) => m.id === model)?.label ?? (entry ? 'Provider default' : 'Loading…')}</span>
+          </Pick>
+          <Pick label="Permission mode" align="start" value={mode} onPick={(m) => setMode(m as PermissionMode)} options={modes.map((m) => ({ id: m, label: MODE_LABEL[m] }))} className={cn(risky && 'text-destructive')}>
+            <span className="text-prose">{MODE_LABEL[mode]}</span>
+          </Pick>
+          {extras.map((x, i) => (
+            <Button key={i} type="button" variant="outline" size="sm" aria-label={`Remove ${agents.find((a) => a.provider === x.provider && a.account === x.account)?.label}`} onClick={() => setExtras(extras.filter((_, j) => j !== i))}>
+              <ProviderIcon id={x.provider} />{catalog[x.provider]?.models.find((m) => m.id === x.model)?.label ?? 'Default'}<X />
+            </Button>
           ))}
+          <Pick label="Add agent" align="start" value="" onPick={(id) => { const a = agents.find((x) => x.id === id); if (a) setExtras([...extras, { provider: a.provider, account: a.account, model: settings.defaultModels[a.provider] ?? catalog[a.provider]?.models[0]?.id ?? '' }]) }} options={agents}>
+            <Plus className="size-3.5" /><span className="text-prose">Agent</span>
+          </Pick>
+          <Button type="submit" className="ml-auto" loading={busy} disabled={!msg.trim()}>{extras.length ? `Create ${extras.length + 1}` : 'Create'}<CornerDownLeft /></Button>
         </div>
-      </div>
-    </form>
+      </form>
+    </DialogShell>
   )
 }

@@ -12,9 +12,10 @@ const button = cva(
         secondary: 'bg-muted hover:bg-muted/70',
         outline: 'border border-input bg-overlay hover:bg-accent',
         ghost: 'hover:bg-accent',
-        destructive: 'text-destructive hover:bg-destructive/12'
+        destructive: 'bg-destructive/12 text-destructive hover:bg-destructive/20',
+        'destructive-solid': 'bg-destructive text-white hover:bg-destructive/90'
       },
-      size: { default: 'h-7 px-3', sm: 'h-6 px-2.5 text-small', lg: 'h-8 px-4', icon: 'size-7' }
+      size: { default: 'h-8 px-3', sm: 'h-6 px-2.5 text-small', lg: 'h-8 px-4', icon: 'size-7' }
     },
     defaultVariants: { variant: 'secondary', size: 'default' }
   }

@@ -2,7 +2,8 @@ import { spawn } from 'node:child_process'
 import type {
   AgentEvent, ApprovalDecision, ImageAttachment, LimitWindow, PermissionMode, ProviderAdapter, StartOptions,
 } from '../../shared/types'
-import { cliPath } from '../settings'
+import { cliPath, getSettings, userEnv } from '../settings'
+import { apiKeyEnv } from '../apiKeys'
 import { RpcClient, type RpcChild } from './rpc'
 
 export type SpawnFn = (env: NodeJS.ProcessEnv) => RpcChild
@@ -18,7 +19,14 @@ const POLICY: Record<PermissionMode, { approvalPolicy: string; sandbox: string; 
     sandboxPolicy: { type: 'workspaceWrite', writableRoots: [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false },
   },
   plan: { approvalPolicy: 'untrusted', sandbox: 'read-only', sandboxPolicy: { type: 'readOnly', networkAccess: false } }, // not advertised; keeps the Record total
+  auto: { approvalPolicy: 'untrusted', sandbox: 'read-only', sandboxPolicy: { type: 'readOnly', networkAccess: false } }, // not advertised
   'full-access': { approvalPolicy: 'never', sandbox: 'danger-full-access', sandboxPolicy: { type: 'dangerFullAccess' } },
+}
+
+/** The mode's policy, with the approval policy overridden by the Account page's Codex tool approvals ('default' keeps the mode's). */
+const policyFor = (m: PermissionMode): (typeof POLICY)[PermissionMode] => {
+  const o = getSettings().codexApprovals
+  return o === 'default' ? POLICY[m] : { ...POLICY[m], approvalPolicy: o }
 }
 
 interface Session {
@@ -61,11 +69,11 @@ export class CodexAdapter implements ProviderAdapter {
 
   constructor(private spawnFn: SpawnFn = defaultSpawn) {}
 
-  private client(configDir?: string): RpcClient {
-    const key = configDir ?? ''
+  private client(configDir?: string, env: Record<string, string> = userEnv()): RpcClient {
+    const key = `${configDir ?? ''}|${JSON.stringify(env)}` // one app-server per account+environment
     let c = this.clients.get(key)
     if (!c) {
-      const child = this.spawnFn(configDir ? { ...process.env, CODEX_HOME: configDir } : { ...process.env })
+      const child = this.spawnFn({ ...process.env, ...apiKeyEnv('codex'), ...env, ...(configDir ? { CODEX_HOME: configDir } : {}) })
       c = new RpcClient(child,
         (m, p) => this.onNotify(m, p),
         (id, m, p) => this.onRequest(c!, id, m, p))
@@ -77,7 +85,7 @@ export class CodexAdapter implements ProviderAdapter {
 
   async listModels(configDir?: string) {
     const r = await this.client(configDir).request('model/list', {})
-    return (r.data as any[]).filter((m) => !m.hidden).map((m) => ({ id: m.id as string, label: m.displayName as string }))
+    return (r.data as any[]).filter((m) => !m.hidden).map((m) => ({ id: m.id as string, label: m.displayName as string, ...(m.supportedReasoningEfforts?.length ? { efforts: m.supportedReasoningEfforts.map((e: any) => e.reasoningEffort as string) } : {}) }))
   }
 
   async getLimits(configDir?: string): Promise<LimitWindow[]> {
@@ -85,8 +93,8 @@ export class CodexAdapter implements ProviderAdapter {
   }
 
   async start(opts: StartOptions, onEvent: (e: AgentEvent) => void): Promise<void> {
-    const client = this.client(opts.configDir)
-    const p = POLICY[opts.permissionMode]
+    const client = this.client(opts.configDir, opts.env)
+    const p = policyFor(opts.permissionMode)
     const params = { cwd: opts.cwd, model: opts.model, approvalPolicy: p.approvalPolicy, sandbox: p.sandbox }
     const r = opts.resumeToken
       ? await client.request('thread/resume', { ...params, threadId: opts.resumeToken })
@@ -108,12 +116,13 @@ export class CodexAdapter implements ProviderAdapter {
     const input = [...(text ? [{ type: 'text', text, text_elements: [] }] : []), ...images.map((i) => ({ type: 'image', url: `data:${i.mimeType};base64,${i.data}` }))]
     // Turn running: steer it instead of starting a second turn (field names from memory, unverified live).
     if (s.turnId) return void (await s.client.request('turn/steer', { threadId: s.threadId, input, expectedTurnId: s.turnId }))
-    const p = POLICY[s.opts.permissionMode]
+    const p = policyFor(s.opts.permissionMode)
     await s.client.request('turn/start', {
       threadId: s.threadId,
       input,
       approvalPolicy: p.approvalPolicy,
       sandboxPolicy: p.sandboxPolicy,
+      ...(s.opts.effort ? { effort: s.opts.effort } : {}),
     })
   }
 

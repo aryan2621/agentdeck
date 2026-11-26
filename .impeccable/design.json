@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-26T00:00:00Z",
+  "title": "Design System: AgentDeck",
+  "extensions": {
+    "colorMeta": {
+      "primary": { "role": "primary", "displayName": "Inverted Ink", "canonical": "oklch(0.15 0 0)", "tonalRamp": [] },
+      "warn": { "role": "tertiary", "displayName": "Needs-you Amber", "canonical": "oklch(0.55 0.14 70)", "tonalRamp": [] },
+      "destructive": { "role": "tertiary", "displayName": "Stop Red", "canonical": "oklch(0.55 0.19 25)", "tonalRamp": [] },
+      "ok": { "role": "tertiary", "displayName": "Go Green", "canonical": "oklch(0.5 0.12 150)", "tonalRamp": [] },
+      "background": { "role": "neutral", "displayName": "Work Surface", "canonical": "oklch(0.985 0 0)", "tonalRamp": [] }
+    },
+    "typographyMeta": {
+      "title": { "displayName": "Title", "purpose": "Page and dialog titles." },
+      "prose": { "displayName": "Prose", "purpose": "Chat message text." },
+      "body": { "displayName": "Body", "purpose": "Default UI text." },
+      "small": { "displayName": "Small", "purpose": "Secondary rows, tooltips." },
+      "meta": { "displayName": "Meta", "purpose": "Badges, timestamps." }
+    },
+    "shadows": [{ "name": "overlay", "value": "0 8px 24px rgba(0,0,0,0.12)", "purpose": "Menus, tooltips, dialogs (dark: 0.4 alpha)." }],
+    "motion": [
+      { "name": "state", "value": "120ms ease-out", "purpose": "color, background-color, border-color, opacity on interactive elements." },
+      { "name": "dialog", "value": "150ms fade + zoom-in-95", "purpose": "DialogShell open." }
+    ],
+    "breakpoints": []
+  },
+  "components": [
+    { "name": "Default Button", "kind": "button", "refersTo": "button-default", "description": "Inverted primary action.", "html": "<button class=\"ds-btn\">Save</button>", "css": ".ds-btn{height:28px;padding:0 12px;border:0;border-radius:6px;background:var(--primary);color:var(--primary-foreground);font-size:13px;font-weight:500}.ds-btn:hover{opacity:.9}.ds-btn:focus-visible{outline:2px solid var(--ring);outline-offset:1px}" },
+    { "name": "Destructive Solid Button", "kind": "button", "refersTo": "button-destructive-solid", "description": "Final confirm of an irreversible action.", "html": "<button class=\"ds-btn-danger\">Delete</button>", "css": ".ds-btn-danger{height:28px;padding:0 12px;border:0;border-radius:6px;background:var(--destructive);color:#fff;font-size:13px;font-weight:500}.ds-btn-danger:hover{opacity:.9}.ds-btn-danger:focus-visible{outline:2px solid var(--ring);outline-offset:1px}" },
+    { "name": "Input", "kind": "input", "refersTo": "input", "description": "Single-line field.", "html": "<input class=\"ds-input\" value=\"Name\">", "css": ".ds-input{height:28px;padding:0 10px;border:1px solid var(--input);border-radius:6px;background:transparent;color:var(--foreground);font-size:13px}.ds-input:focus-visible{outline:2px solid var(--ring);outline-offset:1px}" },
+    { "name": "Badge", "kind": "chip", "refersTo": "badge", "description": "Tinted status label.", "html": "<span class=\"ds-badge\">Needs you</span>", "css": ".ds-badge{display:inline-flex;padding:2px 8px;border-radius:6px;background:color-mix(in oklab,var(--warn) 12%,transparent);color:var(--warn);font-size:11px;font-weight:500;line-height:1}" },
+    { "name": "User Bubble", "kind": "custom", "refersTo": "user-bubble", "description": "Muted right-aligned user message.", "html": "<div class=\"ds-bubble\">Run the tests</div>", "css": ".ds-bubble{max-width:75%;padding:10px 16px;border-radius:8px;background:var(--muted);color:var(--foreground);font-size:14px;line-height:1.6}" }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Instrument",
+    "overview": "A dense, native-feeling control surface in pure neutral greys that follows the OS light/dark scheme. Colour is rationed to status and per-project identity; the primary action is the inverted foreground. Depth is tonal with hairline borders; type is the macOS system face plus Geist Mono.",
+    "keyCharacteristics": ["Pure neutral surface ladder, no chromatic accent.", "Status is carried by shape plus colour, never colour alone.", "4/6/8px radii, 1px borders, a single overlay shadow.", "One 120ms ease-out rhythm for state changes."],
+    "rules": [
+      { "name": "The Status-Only Colour Rule", "body": "Chromatic colour means status or project identity. Chrome and actions stay neutral.", "section": "colors" },
+      { "name": "The Surface Ladder Rule", "body": "chrome < background < panel < overlay. Pick the step; do not invent a grey.", "section": "colors" },
+      { "name": "The Small Ramp Rule", "body": "Use the five named sizes; no ad-hoc pixel sizes.", "section": "typography" },
+      { "name": "The Border-Not-Shadow Rule", "body": "Resting surfaces separate with a 1px border or a surface step, never a shadow.", "section": "elevation" }
+    ],
+    "dos": ["Do use the global :focus-visible outline as the only focus style.", "Do pair status colour with a shape or label.", "Do keep transitions to 120ms ease-out and honour prefers-reduced-motion.", "Do use project hues only through avatars, with avatar-ink as foreground.", "Do build modals on DialogShell and full pages on PageHeader."],
+    "donts": ["Don't add per-component focus rings or glow.", "Don't use shadows on resting surfaces, blur or glass, or radii above 8px.", "Don't add a chromatic brand accent.", "Don't use destructive-solid for anything but the final irreversible confirm."]
+  }
+}

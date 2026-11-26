@@ -4,8 +4,8 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  addWorktree, branchStatus, commitAll, createCheckpoint, createPr, listCheckpoints, rewindPreview, listFiles, restoreCheckpoint, currentBranch, diff, isGitRepo, readAgentdeckConfig,
-  removeWorktree, revertFile, revertHunk, setupWorktree
+  addWorktree, branchStatus, commitAll, createCheckpoint, createPr, listCheckpoints, rewindPreview, listFiles, restoreCheckpoint, currentBranch, diff, isGitRepo, readAgentdeckConfig, writeAgentdeckConfig, parsePrStatus, branchSlug,
+  removeWorktree, initRepo, revertFile, revertHunk, setupWorktree, remoteWebUrl
 } from './git'
 
 let tmp: string
@@ -38,9 +38,28 @@ describe('git service', () => {
     expect(await currentBranch(repo)).toBe('main')
   })
 
-  it('throws readable error without commits', async () => {
+  it('requires commits for worktrees but supports diffs on unborn branches', async () => {
     await expect(addWorktree(repo, 'x', join(tmp, 'wt'))).rejects.toThrow(/no commits/)
-    await expect(diff(repo, 'uncommitted')).rejects.toThrow(/no commits/)
+    expect(await currentBranch(repo)).toBe('main')
+    expect(await diff(repo, 'uncommitted')).toEqual({ diff: '', files: [] })
+    expect(await diff(repo, { base: 'main' })).toEqual({ diff: '', files: [] })
+  })
+
+  it('diffs files before the first commit without changing the real index', async () => {
+    writeFileSync(join(repo, 'staged.txt'), 'staged\n')
+    g(repo, 'add', 'staged.txt')
+    writeFileSync(join(repo, 'staged.txt'), 'working copy\n')
+    writeFileSync(join(repo, 'new.txt'), 'new file\n')
+    writeFileSync(join(repo, '.gitignore'), 'ignored.txt\n')
+    writeFileSync(join(repo, 'ignored.txt'), 'ignored\n')
+    const index = g(repo, 'ls-files', '--stage')
+    const result = await diff(repo, 'uncommitted')
+    expect(result.diff).toContain('+working copy')
+    expect(result.diff).toContain('+new file')
+    expect(result.files).toContainEqual({ path: 'new.txt', status: 'A', additions: 1, deletions: 0 })
+    expect(result.files.map((f) => f.path)).not.toContain('ignored.txt')
+    expect(g(repo, 'ls-files', '--stage')).toBe(index)
+    expect(g(repo, 'symbolic-ref', '--short', 'HEAD').trim()).toBe('main')
   })
 
   it('adds and removes a worktree with branch', async () => {
@@ -56,6 +75,20 @@ describe('git service', () => {
   it('rejects option-like branch names', async () => {
     initialCommit()
     await expect(addWorktree(repo, '--evil', join(tmp, 'wt'))).rejects.toThrow(/Invalid/)
+  })
+
+  it('round-trips actions and drops blank ones', async () => {
+    await writeAgentdeckConfig(repo, { actions: [{ name: ' dev ', command: ' pnpm dev ' }, { name: '', command: 'x' }] })
+    expect(await readAgentdeckConfig(repo)).toEqual({ actions: [{ name: 'dev', command: 'pnpm dev' }] })
+    await writeAgentdeckConfig(repo, {})
+  })
+
+  it('writes config and removes it when empty', async () => {
+    await writeAgentdeckConfig(repo, { copy: ['.env', ' '], setup: ' pnpm i ' })
+    expect(await readAgentdeckConfig(repo)).toEqual({ copy: ['.env'], setup: 'pnpm i' })
+    await expect(writeAgentdeckConfig(repo, { copy: ['../x'] })).rejects.toThrow(/escapes/)
+    await writeAgentdeckConfig(repo, {})
+    expect(await readAgentdeckConfig(repo)).toEqual({})
   })
 
   it('reads and validates config', async () => {
@@ -75,6 +108,7 @@ describe('git service', () => {
     const r = await setupWorktree(repo, wt.path, { copy: ['.env', 'missing.txt'], setup: 'echo ran; pwd' })
     expect(readFileSync(join(wt.path, '.env'), 'utf8')).toBe('SECRET=1')
     expect(r.exitCode).toBe(0)
+    expect(r.copied).toBe(1)
     expect(r.output).toContain('ran')
     expect(r.output).toContain(wt.path)
     await expect(setupWorktree(repo, wt.path, { copy: ['../secret'] })).rejects.toThrow(/escapes/)
@@ -196,5 +230,41 @@ describe('revertHunk', () => {
     expect(now).toContain('TWO')
     expect(now).toContain('line35')
     await expect(revertHunk(repo, 'f.txt', 5)).rejects.toThrow(/no longer exists/)
+  })
+})
+
+describe('initRepo', () => {
+  it('turns a plain folder into a repo with one commit', async () => {
+    const dir = join(tmp, 'plain')
+    mkdirSync(dir)
+    writeFileSync(join(dir, 'a.txt'), 'x')
+    expect(await isGitRepo(dir)).toBe(false)
+    await initRepo(dir)
+    expect(await isGitRepo(dir)).toBe(true)
+    expect(g(dir, 'log', '--format=%s').trim()).toBe('Initial commit')
+  })
+})
+
+describe('parsePrStatus', () => {
+  it('maps check runs and status contexts to pass/fail/pending', () => {
+    const r = parsePrStatus(JSON.stringify({ number: 7, url: 'u', state: 'OPEN', statusCheckRollup: [
+      { name: 'build', conclusion: 'SUCCESS' }, { name: 'lint', conclusion: 'FAILURE' }, { name: 'e2e', status: 'IN_PROGRESS', conclusion: '' }, { context: 'ci/x', state: 'PENDING' }] }))
+    expect(r.checks).toEqual([{ name: 'build', state: 'pass' }, { name: 'lint', state: 'fail' }, { name: 'e2e', state: 'pending' }, { name: 'ci/x', state: 'pending' }])
+    expect(r.number).toBe(7)
+    expect(r.conflicts).toBe(false)
+    expect(parsePrStatus(JSON.stringify({ number: 1, mergeable: 'CONFLICTING' })).conflicts).toBe(true)
+  })
+})
+
+it('remoteWebUrl normalises ssh and https remotes', () => {
+  expect(remoteWebUrl('git@github.com:o/r.git\n')).toBe('https://github.com/o/r')
+  expect(remoteWebUrl('https://github.com/o/r.git')).toBe('https://github.com/o/r')
+  expect(remoteWebUrl('/local/path')).toBeNull()
+})
+
+describe('branchSlug', () => {
+  it('makes a short branch-safe slug', () => {
+    expect(branchSlug('Fix the  login bug!! (urgent)')).toBe('fix-the-login-bug-urgent')
+    expect(branchSlug('???')).toBe('')
   })
 })

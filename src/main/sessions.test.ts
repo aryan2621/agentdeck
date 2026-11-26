@@ -59,6 +59,29 @@ describe('SessionManager', () => {
     expect(await m.getEvents(s.id)).toContainEqual({ type: 'approval_decision', id: 'ap1', allow: false, ts: expect.any(Number) })
   })
 
+  it('createSession stores the run group id', async () => {
+    const db = openDb(':memory:')
+    db.addProject({ id: 'p', path: '/repo', name: 'repo' })
+    const { a } = fakeAdapter()
+    const m = new SessionManager({ db, adapters: { claude: a, codex: a }, worktreesDir: '/wt', emit: { event: () => {}, session: () => {} } })
+    const s = await m.createSession({ projectId: 'p', provider: 'claude', permissionMode: 'supervised', useWorktree: false, groupId: 'g1' })
+    expect(s.groupId).toBe('g1')
+    expect((await m.createSession({ projectId: 'p', provider: 'codex', permissionMode: 'supervised', useWorktree: false })).groupId).toBeUndefined()
+  })
+
+  it('switch agent shares the worktree, and archiving one keeps it for the other', async () => {
+    const db = openDb(':memory:')
+    db.addProject({ id: 'p', path: '/repo', name: 'repo' })
+    const { a } = fakeAdapter()
+    const m = new SessionManager({ db, adapters: { claude: a, codex: a }, worktreesDir: '/wt', emit: { event: () => {}, session: () => {} } })
+    const s = await m.createSession({ projectId: 'p', provider: 'claude', permissionMode: 'supervised', useWorktree: false })
+    db.updateSession(s.id, { worktreePath: '/wt/x', branch: 'b' })
+    const n = await m.createSession({ projectId: 'p', provider: 'codex', permissionMode: 'supervised', useWorktree: true, shareWorktreeOf: s.id })
+    expect(n.worktreePath).toBe('/wt/x')
+    await m.archiveSession(n.id, true) // would throw on the fake path if it tried to remove it
+    expect(db.listSessions('p').find((x) => x.id === s.id)?.worktreePath).toBe('/wt/x')
+  })
+
   it('configureSession validates the mode, restarts the adapter, and keeps the chat', async () => {
     const db = openDb(':memory:')
     db.addProject({ id: 'p', path: '/repo', name: 'repo' })
@@ -165,5 +188,56 @@ describe('parallel cap', () => {
       await expect(m.sendMessage(s2.id, 'hi')).rejects.toThrow('Parallel limit')
       await expect(m.sendMessage(s1.id, 'hi')).resolves.toBeUndefined() // its own turn doesn't count against itself
     } finally { setSettings({ maxParallel: 0 }) }
+  })
+})
+
+describe('createProject', () => {
+  it('reports each step in order and makes a git repo (no GitHub)', async () => {
+    const parent = mkdtempSync(join(tmpdir(), 'ad-proj-'))
+    const steps: string[] = []
+    const { a } = fakeAdapter()
+    const m = new SessionManager({ db: openDb(':memory:'), adapters: { claude: a, codex: a }, worktreesDir: '/wt', emit: { event: () => {}, session: () => {}, progress: (s) => steps.push(s) } })
+    const p = await m.createProject('demo', parent)
+    expect(steps).toEqual(['folder', 'git', 'add'])
+    expect(existsSync(join(parent, 'demo', '.git'))).toBe(true)
+    expect(p?.name).toBe('demo')
+  })
+})
+
+describe('repo git settings', () => {
+  it('branches new worktrees from the configured base, and removeProject refuses while sessions exist', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'ad-base-'))
+    const g = (...a: string[]) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' })
+    g('init', '-q', '-b', 'main'); g('config', 'user.email', 't@t'); g('config', 'user.name', 't')
+    writeFileSync(join(repo, 'a'), '1'); g('add', '.'); g('commit', '-qm', 'one')
+    g('branch', 'base'); g('checkout', '-q', '-b', 'other'); writeFileSync(join(repo, 'b'), '2'); g('add', '.'); g('commit', '-qm', 'two')
+    const db = openDb(':memory:')
+    db.addProject({ id: 'p', path: repo, name: 'repo' })
+    setSettings({ repoGit: { p: { baseBranch: 'base', remote: '' } } })
+    const { a } = fakeAdapter()
+    const m = new SessionManager({ db, adapters: { claude: a, codex: a }, worktreesDir: mkdtempSync(join(tmpdir(), 'ad-wt-')), emit: { event: () => {}, session: () => {} } })
+    const s = await m.createSession({ projectId: 'p', provider: 'claude', permissionMode: 'supervised', useWorktree: true })
+    expect(existsSync(join(s.worktreePath!, 'b'))).toBe(false) // 'other' has b; 'base' does not
+    expect((await m.listRefs('p')).branches).toContain('base')
+    await expect(m.removeProject('p')).rejects.toThrow('Archive')
+    await m.archiveSession(s.id, true)
+    await m.removeProject('p')
+    expect(await m.listProjects()).toEqual([])
+  })
+  it('archive removes the worktree and local branch when deleteBranchOnArchive is set, even if the caller passes false', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'ad-arch-'))
+    const g = (...a: string[]): string => execFileSync('git', a, { cwd: repo }).toString()
+    g('init', '-q', '-b', 'main'); g('config', 'user.email', 't@t'); g('config', 'user.name', 't')
+    writeFileSync(join(repo, 'a'), '1'); g('add', '.'); g('commit', '-qm', 'one')
+    const db = openDb(':memory:')
+    db.addProject({ id: 'p', path: repo, name: 'repo' })
+    setSettings({ repoGit: { p: { baseBranch: '', remote: '' } }, deleteBranchOnArchive: true, branchPrefixMode: 'custom', branchPrefix: 'ad' })
+    const { a } = fakeAdapter()
+    const m = new SessionManager({ db, adapters: { claude: a, codex: a }, worktreesDir: mkdtempSync(join(tmpdir(), 'ad-wt-')), emit: { event: () => {}, session: () => {} } })
+    const s = await m.createSession({ projectId: 'p', provider: 'claude', permissionMode: 'supervised', useWorktree: true })
+    expect(s.branch).toMatch(/^ad\//)
+    await m.archiveSession(s.id, false)
+    expect(existsSync(s.worktreePath!)).toBe(false)
+    expect(g('branch', '--list', s.branch!).trim()).toBe('')
   })
 })

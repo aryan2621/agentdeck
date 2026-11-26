@@ -13,6 +13,10 @@ export interface SessionInfo {
   projectId: string
   provider: ProviderId
   model?: string
+  /** Reasoning effort; unset = provider default. */
+  effort?: string
+  /** Sessions created from one prompt share this id (run group); unset = standalone. */
+  groupId?: string
   permissionMode: PermissionMode
   accountId?: string
   worktreePath?: string
@@ -20,6 +24,8 @@ export interface SessionInfo {
   status: SessionStatus
   title: string
   createdAt: number
+  /** Newest event time (falls back to createdAt): the Home list's "Last active". */
+  lastActiveAt: number
 }
 export interface NewSessionInput {
   avatar?: AvatarChoice
@@ -31,13 +37,43 @@ export interface NewSessionInput {
   useWorktree: boolean
   accountId?: string
   firstMessage?: string
+  /** Start the worktree from this branch, or from a PR when it is a number. */
+  baseRef?: string
+  /** Joins the run group with this id (see SessionInfo.groupId). */
+  groupId?: string
+  /** Run in this session's worktree instead of creating one (switch agent). */
+  shareWorktreeOf?: string
 }
 export interface AccountInfo { id: string; provider: ProviderId; label: string }
-export interface ModelInfo { id: string; label: string }
+/** `efforts`: reasoning levels the model accepts; absent = no effort control. */
+export interface ModelInfo { id: string; label: string; efforts?: string[] }
+
+/** Suffix of the addProject error for a folder without git; the renderer offers to initialise it. */
+export const NOT_GIT = 'is not a git repository'
+
+export interface ProjectConfig { copy?: string[]; setup?: string; archive?: string; actions?: { name: string; command: string }[] }
 
 export interface AgentDeckApi {
   /** Opens the folder picker, or adds `path` directly (drag and drop). */
   addProject(path?: string): Promise<ProjectInfo | null>
+  getProjectConfig(projectId: string): Promise<ProjectConfig>
+  setProjectConfig(projectId: string, cfg: ProjectConfig): Promise<void>
+  /** Folder picker only; returns the chosen path. */
+  pickDirectory(): Promise<string | null>
+  /** Folder holding every project's session worktrees (one subfolder per project). */
+  getWorktreesRoot(): Promise<string>
+  listRefs(projectId: string): Promise<{ branches: string[]; remotes: string[] }>
+  removeProject(projectId: string): Promise<void>
+  /** Makes `parent/name`, git-inits it (optionally with a GitHub repo), and adds it. */
+  createProject(name: string, parent: string, github?: 'private' | 'public', repo?: string): Promise<ProjectInfo | null>
+  /** Logged-in GitHub user and orgs (gh). */
+  githubOwners(): Promise<string[]>
+  /** True when `owner/name` is free on GitHub. */
+  githubRepoAvailable(slug: string): Promise<boolean>
+  /** `gh repo clone` of a URL or owner/name into `parent`, then adds it. */
+  cloneProject(repo: string, parent: string): Promise<ProjectInfo | null>
+  /** Runs `git init` + first commit on a plain folder (and optionally creates and pushes a GitHub repo), then adds it. */
+  initProject(path: string, github?: 'private' | 'public'): Promise<ProjectInfo | null>
   /** Filesystem path of a dropped File. */
   pathForFile(f: File): string
   listProjects(): Promise<ProjectInfo[]>
@@ -51,6 +87,9 @@ export interface AgentDeckApi {
   interrupt(sessionId: string): Promise<void>
   respondToApproval(sessionId: string, approvalId: string, decision: ApprovalDecision): Promise<void>
   archiveSession(sessionId: string, removeWorktree: boolean): Promise<void>
+  listArchived(): Promise<SessionInfo[]>
+  /** Un-archives a session so it shows in its project again. */
+  restoreSession(sessionId: string): Promise<SessionInfo>
   renameSession(sessionId: string, title: string): Promise<SessionInfo>
   getLimits(provider: ProviderId): Promise<LimitWindow[]>
   /** 'branch' diffs against the project's checked-out branch; 'uncommitted' against HEAD. */
@@ -70,10 +109,21 @@ export interface AgentDeckApi {
   /** Restores worktree files only; chat history and the agent's memory are unchanged. Refused while working. */
   rewindPreview(sessionId: string, checkpointId: string): Promise<string[]>
   checkTool(id: ProviderId | 'gh'): Promise<boolean>
+  /** Version and login details of a provider CLI (Agents page). */
+  agentInfo(id: ProviderId): Promise<{ label: string; value: string }[]>
   rewindSession(sessionId: string, checkpointId: string): Promise<void>
   pushSession(sessionId: string): Promise<string>
   /** Returns the PR URL. */
   createPr(sessionId: string, title: string, body: string): Promise<string>
+  /** The branch's pull request with its checks, or null when none exists. */
+  mergePr(sessionId: string, auto: boolean): Promise<string>
+  prStatus(sessionId: string): Promise<{ number: number; url: string; state: string; checks: { name: string; state: 'pass' | 'fail' | 'pending' }[]; conflicts: boolean } | null>
+  /** Files in the session worktree's `.context` folder. */
+  listArtifacts(sessionId: string): Promise<string[]>
+  /** Output of the agentdeck.json setup script from when this session was created (empty after an app restart). */
+  setupOutput(sessionId: string): Promise<{ output: string; copied: number }>
+  /** Browsable URL of the project's origin remote, or null. */
+  projectRemoteUrl(projectId: string): Promise<string | null>
   getSettings(): Promise<Settings>
   setSettings(patch: Partial<Settings>): Promise<Settings>
   listAccounts(): Promise<AccountInfo[]>
@@ -86,10 +136,21 @@ export interface AgentDeckApi {
   /** Refused while any session uses the account. */
   removeAccount(accountId: string): Promise<void>
   /** Change model / mode of an idle session; takes effect on the next message. */
-  configureSession(sessionId: string, opts: { model?: string | null; permissionMode?: PermissionMode }): Promise<SessionInfo>
+  configureSession(sessionId: string, opts: { model?: string | null; effort?: string | null; permissionMode?: PermissionMode }): Promise<SessionInfo>
   branchStatus(sessionId: string): Promise<{ dirty: boolean; ahead: number | null }>
   /** Opens a file of the session's folder in the OS default app. */
-  openFile(sessionId: string, relPath: string): Promise<void>
+  openFile(sessionId: string, relPath: string, reveal?: boolean): Promise<void>
+  gitIdentity(): Promise<{ name: string; email: string; login: string | null }>
+  apiKeyStatus(provider: ProviderId): Promise<boolean>
+  /** Empty key removes it. Stored encrypted in main; never readable back. */
+  setApiKey(provider: ProviderId, key: string): Promise<void>
+  openClaudeSettings(reveal: boolean): Promise<void>
+  /** General settings: play a sound (name or path; omit = the saved one), add a sound file, saved extra sounds, disk-access status and shortcut. */
+  playSound(sound?: string): Promise<void>
+  addSound(): Promise<string | null>
+  listSounds(): Promise<string[]>
+  fullDiskAccess(): Promise<boolean>
+  openDiskAccessSettings(): Promise<void>
   /** Discards the file's uncommitted changes (restores from HEAD, or deletes a new file). Refused while working. */
   revertFile(sessionId: string, relPath: string): Promise<void>
   revertHunk(sessionId: string, relPath: string, index: number): Promise<void>
@@ -108,6 +169,8 @@ export interface AgentDeckApi {
   onSelectSession(cb: (sessionId: string) => void): () => void
   /** Fires when a session row changes (status, title, branch). */
   onSessionUpdated(cb: (s: SessionInfo) => void): () => void
+  /** Fires as createProject starts each step. */
+  onProjectProgress(cb: (step: string) => void): () => void
 }
 
 declare global {

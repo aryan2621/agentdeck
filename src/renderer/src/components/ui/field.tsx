@@ -24,20 +24,22 @@ export const Loading = ({ children = 'Loading…', className }: { children?: Rea
   </div>
 )
 
-export const SettingsSection = ({ title, description, action, children }: { title: string; description?: string; action?: React.ReactNode; children: React.ReactNode }): React.JSX.Element => (
-  <section className="flex flex-col gap-1">
-    <div className="flex items-center justify-between gap-2"><h2 className="text-body font-medium text-foreground">{title}</h2>{action}</div>
-    {description && <p className="text-body text-muted-foreground">{description}</p>}
-    <div className="mt-2 flex flex-col divide-y divide-border border-t border-border">{children}</div>
+/** Flat list of rows split by hairlines (Conductor-style); the heading is optional context, not a card header. */
+export const SettingsSection = ({ title, description, action, children }: { title?: string; description?: string; action?: React.ReactNode; children: React.ReactNode }): React.JSX.Element => (
+  <section className="flex flex-col">
+    {title && <div className="flex items-center justify-between gap-2"><h2 className="text-prose font-medium text-foreground">{title}</h2>{action}</div>}
+    {description && <p className="mt-1 text-prose text-muted-foreground">{description}</p>}
+    <div className={cn(title && 'mt-2', 'flex flex-col divide-y divide-border')}>{children}</div>
   </section>
 )
 
-export const SettingsRow = ({ label, description, children }: { label: string; description?: string; children?: React.ReactNode }): React.JSX.Element => (
-  <div className="flex min-h-10 items-center justify-between gap-4 py-2">
+/** Title and description on the left, control on the right; `stacked` puts a wide control (path, text) under the text. */
+export const SettingsRow = ({ label, description, stacked, children }: { label: string; description?: React.ReactNode; stacked?: boolean; children?: React.ReactNode }): React.JSX.Element => (
+  <div data-settings-row className={cn('flex gap-4 py-4', stacked ? 'flex-col' : 'min-h-16 items-center justify-between')}>
     <div className="min-w-0">
-      <div className="truncate text-body text-foreground">{label}</div>
-      {description && <div className="text-small text-muted-foreground">{description}</div>}
+      <div className="text-prose font-medium text-foreground">{label}</div>
+      {description && <div className="text-prose text-muted-foreground">{description}</div>}
     </div>
-    {children && <div className="flex shrink-0 items-center gap-2">{children}</div>}
+    {children && <div className={cn('flex items-center gap-2', stacked ? 'w-full' : 'shrink-0')}>{children}</div>}
   </div>
 )

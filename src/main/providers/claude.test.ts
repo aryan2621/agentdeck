@@ -57,6 +57,12 @@ describe('claude provider', () => {
     expect(f.calls.options?.env?.CLAUDE_CONFIG_DIR).toBe('/cfg')
   })
 
+  it('passes project env vars to the agent process', async () => {
+    const f = fake(() => [])
+    await createClaudeProvider(f.fn).start({ sessionId: 's2', cwd: '/w', permissionMode: 'supervised', env: { FOO_PROJ: 'bar' } }, () => {})
+    expect(f.calls.options?.env?.FOO_PROJ).toBe('bar')
+  })
+
   it('emits error status on error result', async () => {
     const f = fake(() => [{ type: 'result', subtype: 'error_during_execution', is_error: true, session_id: 'x', total_cost_usd: 0, usage: {}, errors: ['boom'] }])
     const ev = await start(createClaudeProvider(f.fn))

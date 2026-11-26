@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import * as D from '@radix-ui/react-dialog'
+import { DialogShell, DialogTitle } from './ui/dialog'
 import { Command } from 'cmdk'
 import { actions, useStore } from '../store'
 import { StatusDot } from './StatusBadge'
@@ -7,7 +7,7 @@ import { Kbd } from './ui/kbd'
 import { keysOf, FOCUS_SEARCH, sessionCommand } from '../lib/shortcuts'
 import { Archive, BellRing, FolderPlus, PanelLeft, PanelRight, Pencil, RotateCcw, Search, Settings, SquarePen } from 'lucide-react'
 
-const item = 'flex cursor-default items-center gap-2 rounded-lg px-2 h-8 text-body data-[selected=true]:bg-accent'
+const item = 'flex cursor-default items-center gap-2 rounded-sm px-2 h-8 text-body data-[selected=true]:bg-accent'
 const group = 'text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1 [&_[cmdk-group-heading]]:text-meta [&_[cmdk-group-heading]]:text-faint'
 
 const OPEN_PALETTE = 'agentdeck:palette'
@@ -29,6 +29,7 @@ export default function Palette(): React.JSX.Element {
       if (!e.metaKey || e.shiftKey || e.altKey) return
       if (e.key === 'k') setOpen((o) => !o)
       else if (e.key === 'j') nextNeedsYou()
+      else if (e.key === ',') actions.openSettings()
       else if (e.key === 'f') window.dispatchEvent(new Event(FOCUS_SEARCH))
       else if (e.key === 'n') {
         const pid = all.find((s) => s.id === selectedId)?.projectId ?? projects[0]?.id
@@ -44,6 +45,7 @@ export default function Palette(): React.JSX.Element {
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener(OPEN_PALETTE, show) }
   }, [projects, sessions, selectedId])
   const recent = recents.map((id) => all.find((s) => s.id === id)).filter((s): s is NonNullable<typeof s> => !!s && s.id !== selectedId).slice(0, 4)
+  const rest = all.filter((s) => !recent.includes(s))
   const projectName = (id: string): string => projects.find((p) => p.id === id)?.name ?? ''
   const row = (s: (typeof all)[number], k: string): React.JSX.Element => (
     <Command.Item key={k + s.id} value={`${s.title} ${projectName(s.projectId)} ${s.id} ${k}`} onSelect={run(() => actions.select(s.id))} className={item}>
@@ -56,13 +58,10 @@ export default function Palette(): React.JSX.Element {
   const ic = 'size-3.5 text-faint'
   const run = (fn: () => void) => () => { setOpen(false); fn() }
   return (
-    <D.Root open={open} onOpenChange={setOpen}>
-      <D.Portal>
-        <D.Overlay className="fixed inset-0 z-50 bg-scrim" />
-        <D.Content aria-describedby={undefined} className="fixed top-24 left-1/2 z-50 w-[min(640px,90vw)] -translate-x-1/2 overflow-hidden rounded-lg border border-border bg-overlay shadow-overlay">
-          <D.Title className="sr-only">Command palette</D.Title>
+    <DialogShell open={open} onOpenChange={setOpen} aria-describedby={undefined} className="top-[15vh] left-1/2 w-[min(560px,90vw)] -translate-x-1/2 overflow-hidden">
+      <DialogTitle className="sr-only">Command palette</DialogTitle>
           <Command>
-            <Command.Input autoFocus aria-label="Search sessions and actions" placeholder="Search sessions and actions" className="h-12 w-full border-b border-border bg-transparent px-4 text-prose outline-none placeholder:text-muted-foreground" />
+            <Command.Input autoFocus aria-label="Search sessions and actions" placeholder="Search sessions and actions" className="h-12 w-full bg-transparent px-4 text-prose outline-none placeholder:text-muted-foreground" />
             <Command.List className="max-h-96 overflow-y-auto p-1">
               <Command.Empty className="px-2 py-3 text-muted-foreground">No results</Command.Empty>
               {recent.length > 0 && <Command.Group heading="Recent" className={group}>{recent.map((x) => row(x, 'recent'))}</Command.Group>}
@@ -72,20 +71,18 @@ export default function Palette(): React.JSX.Element {
                 {act(<RotateCcw className={ic} aria-hidden />, 'Rewind files to last checkpoint', () => sessionCommand('rewind'))}
                 {act(<Archive className={ic} aria-hidden />, 'Archive session', () => sessionCommand('archive'))}
               </Command.Group>}
-              {all.length > 0 && <Command.Group heading="Sessions" className={group}>{all.map((x) => row(x, 'all'))}</Command.Group>}
+              {rest.length > 0 && <Command.Group heading="Sessions" className={group}>{rest.map((x) => row(x, 'all'))}</Command.Group>}
               <Command.Group heading="Actions" className={group}>
                 {projects.map((p) => <Command.Item key={p.id} value={`new session ${p.name}`} onSelect={run(() => actions.openNew(p.id))} className={item}><SquarePen className="size-3.5 text-faint" aria-hidden /><span className="flex-1 text-foreground">New session in {p.name}</span>{p.id === (projects.find((x) => (sessions[x.id] ?? []).some((q) => q.id === selectedId)) ?? projects[0])?.id && <Kbd>⌘N</Kbd>}</Command.Item>)}
                 {act(<FolderPlus className={ic} aria-hidden />, 'Add project', () => void actions.addProject())}
                 {act(<PanelLeft className={ic} aria-hidden />, 'Toggle sidebar', actions.toggleSidebar, 'sidebar')}
                 {act(<BellRing className={ic} aria-hidden />, 'Next session that needs you', nextNeedsYou, 'next')}
                 {act(<Search className={ic} aria-hidden />, 'Search sessions', () => window.dispatchEvent(new Event(FOCUS_SEARCH)), 'search')}
-                {act(<Settings className={ic} aria-hidden />, 'Settings', actions.openSettings)}
+                {act(<Settings className={ic} aria-hidden />, 'Settings', actions.openSettings, 'settings')}
               </Command.Group>
             </Command.List>
             <div className="flex items-center gap-3 border-t border-border px-4 py-2 text-meta text-faint"><span><Kbd>↵</Kbd> Open</span><span><Kbd>↑↓</Kbd> Move</span><span><Kbd>esc</Kbd> Close</span></div>
           </Command>
-        </D.Content>
-      </D.Portal>
-    </D.Root>
+    </DialogShell>
   )
 }

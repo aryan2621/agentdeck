@@ -6,7 +6,6 @@ import { Loading, SettingsRow, SettingsSection } from './ui/field'
 import { Row } from './ui/row'
 import Avatar from './Avatar'
 import { Button } from './ui/button'
-import { Tip } from './ui/tooltip'
 
 const PAGE = 10
 
@@ -27,8 +26,8 @@ export default function ProjectTools({ projectId }: { projectId: string }): Reac
     window.api.importHistory(projectId, h.provider, h.id).then((s) => { actions.upsertSession(s); actions.select(s.id) }, actions.fail).finally(() => setImporting(null))
   }
   return (
-    <div className="flex w-full flex-col gap-8 overflow-y-auto px-8 py-10 [&>section]:mx-auto [&>section]:w-3/4">
-      <SettingsSection title="Past sessions" description="Sessions found in ~/.claude and ~/.codex for this folder. Select one to import it." action={<Tip label="Look for new sessions and MCP servers"><Button variant="ghost" size="icon" aria-label="Refresh" onClick={refresh} disabled={hist === null || mcp === null}><RefreshCw /></Button></Tip>}>
+    <div className="flex w-full flex-col gap-8">
+      <SettingsSection title="Past sessions" description="Sessions found in ~/.claude and ~/.codex for this folder. Select one to import it." action={<Button variant="ghost" size="icon" aria-label="Refresh" onClick={refresh} disabled={hist === null || mcp === null}><RefreshCw /></Button>}>
         {hist === null && <Loading>Looking for past sessions…</Loading>}
         {hist?.length === 0 && <SettingsRow label="None found" />}
         <div className="flex flex-col gap-0.5">
@@ -47,8 +46,8 @@ export default function ProjectTools({ projectId }: { projectId: string }): Reac
           <div className="flex items-center justify-between py-3 text-small text-muted-foreground">
             <span className="tnum">{page * PAGE + 1}–{Math.min(hist.length, (page + 1) * PAGE)} of {hist.length}</span>
             <div className="flex gap-1">
-              <Tip label="Previous page"><Button variant="outline" size="icon" aria-label="Previous page" disabled={page === 0} onClick={() => setPage(page - 1)}><ChevronLeft /></Button></Tip>
-              <Tip label="Next page"><Button variant="outline" size="icon" aria-label="Next page" disabled={(page + 1) * PAGE >= hist.length} onClick={() => setPage(page + 1)}><ChevronRight /></Button></Tip>
+              <Button variant="outline" size="icon" aria-label="Previous page" disabled={page === 0} onClick={() => setPage(page - 1)}><ChevronLeft /></Button>
+              <Button variant="outline" size="icon" aria-label="Next page" disabled={(page + 1) * PAGE >= hist.length} onClick={() => setPage(page + 1)}><ChevronRight /></Button>
             </div>
           </div>
         )}
@@ -57,7 +56,7 @@ export default function ProjectTools({ projectId }: { projectId: string }): Reac
         {mcp === null && <Loading>Reading MCP config…</Loading>}
         {mcp?.length === 0 && <SettingsRow label="None configured" />}
         {(mcp ?? []).map((m, i) => (
-          <SettingsRow key={i} label={m.name} description={m.command}>
+          <SettingsRow key={i} label={m.name} description={<span className="break-all font-mono text-small">{m.command}</span>}>
             <span className="font-mono text-small text-muted-foreground">{m.provider} · {m.scope}</span>
           </SettingsRow>
         ))}

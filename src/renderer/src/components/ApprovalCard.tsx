@@ -24,23 +24,24 @@ export default function ApprovalCard({ sessionId, id, kind, summary, detail, all
   return (
     // Keys only fire while focus is inside the card, so typing in the composer is never hijacked.
     <div
-      className="flex max-w-[640px] flex-col gap-3 rounded-lg border border-warn/50 bg-overlay p-4 outline-none" role="group" aria-label={`Approval request: ${summary}`} tabIndex={-1}
+      className="flex max-w-[640px] flex-col gap-3 rounded-lg border border-warn/60 bg-overlay p-4 outline-none focus-visible:ring-1 focus-visible:ring-warn" role="group" aria-label={`Approval request: ${summary}`} tabIndex={-1}
       ref={(el) => { if (el && !/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName ?? '')) el.focus() }}
       onKeyDown={(e) => {
         if (e.metaKey || e.ctrlKey) return
         if (e.key === 'y') respond(true)
-        else if (e.key === 'n' || e.key === 'Escape') respond(false)
-        else if (e.key === 'a') respond(true, true)
+        else if (e.key === 'n') respond(false)
+        else if (e.key === 'Escape') e.currentTarget.blur()
+        else if (e.key === 'A') respond(true, true)
         else if (e.key === 'Enter' && e.target === e.currentTarget) respond(true)
       }}
     >
-      <div className="flex items-center gap-2 text-small text-muted-foreground"><ShieldQuestion className="size-3.5 text-warn" />Needs your OK<span className="font-mono text-faint">{kind}</span></div>
-      <b className="text-body font-medium break-words">{summary}</b>
-      {text && <pre className="max-h-48 overflow-auto rounded-md bg-panel px-3 py-2 font-mono text-small whitespace-pre-wrap">{text}</pre>}
-      <div className="flex flex-wrap gap-2">
-        <Button onClick={() => respond(true)}>Approve<Kbd>Y</Kbd></Button>
-        <Button variant="outline" onClick={() => respond(true, true)} title={`Stop asking for ${kind} in this session`}>Always allow<Kbd>A</Kbd></Button>
-        <Button variant="outline" onClick={() => respond(false)}>Deny<Kbd>N</Kbd></Button>
+      <div className="flex items-center gap-2 text-small font-medium text-foreground"><ShieldQuestion className="size-3.5 text-warn" />Needs your OK<span className="ml-auto font-mono font-normal text-muted-foreground">{kind}</span></div>
+      <code className="font-mono text-body break-words">{summary}</code>
+      {text && <pre className="max-h-48 overflow-auto border-l-2 border-border pl-3 font-mono text-small whitespace-pre-wrap">{text}</pre>}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="default" onClick={() => respond(true)}>Approve<Kbd>Y</Kbd></Button>
+        <Button variant="ghost" onClick={() => respond(true, true)} title={`Stop asking for ${kind} in this session`}>Always allow {kind}<Kbd>⇧A</Kbd></Button>
+        <Button variant="ghost" className="ml-auto text-destructive" onClick={() => respond(false)}>Deny<Kbd>N</Kbd></Button>
       </div>
     </div>
   )

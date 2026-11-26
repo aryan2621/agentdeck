@@ -7,7 +7,7 @@ import { openDb, type Session } from './db'
 
 const session: Session = {
   id: 's1', projectId: 'p1', provider: 'claude', accountId: 'a1', model: 'opus', permissionMode: 'supervised',
-  worktreePath: '/wt', branch: 'feat', status: 'idle', resumeToken: null, createdAt: 1, title: null, avatar: null,
+  worktreePath: '/wt', branch: 'feat', status: 'idle', resumeToken: null, createdAt: 1, title: null, avatar: null, effort: null, groupId: null,
 }
 
 describe('db', () => {

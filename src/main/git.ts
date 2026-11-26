@@ -1,14 +1,17 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 const execFileP = promisify(execFile)
 
+export interface AgentdeckAction { name: string; command: string }
 export interface AgentdeckConfig {
   copy?: string[]
   setup?: string
+  archive?: string
+  actions?: AgentdeckAction[]
 }
 interface ChangedFile {
   path: string
@@ -23,6 +26,8 @@ export interface DiffResult {
 export interface SetupResult {
   output: string
   exitCode: number
+  /** Files/folders copied from agentdeck.json `copy`. */
+  copied?: number
 }
 
 async function run(cwd: string, cmd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<string> {
@@ -56,6 +61,12 @@ export async function listFiles(cwd: string): Promise<string[]> {
   return (await git(cwd, 'ls-files', '-z', '--cached', '--others', '--exclude-standard')).split('\0').filter(Boolean)
 }
 
+/** Files under the worktree's `.context` folder (agent notes and artifacts), relative to it. */
+export async function listArtifacts(cwd: string): Promise<string[]> {
+  const entries = await readdir(join(cwd, '.context'), { recursive: true, withFileTypes: true }).catch(() => [])
+  return entries.filter((e) => e.isFile()).map((e) => relative(join(cwd, '.context'), join(e.parentPath, e.name))).sort()
+}
+
 export async function isGitRepo(path: string): Promise<boolean> {
   try {
     return (await git(path, 'rev-parse', '--is-inside-work-tree')).trim() === 'true'
@@ -64,21 +75,60 @@ export async function isGitRepo(path: string): Promise<boolean> {
   }
 }
 
+/** Turns a plain folder into a repo with one commit; optionally creates the GitHub repo (via the logged-in gh) and pushes. */
+export async function initRepo(path: string, github?: 'private' | 'public'): Promise<void> {
+  await git(path, 'init')
+  await git(path, 'add', '-A')
+  await git(path, 'commit', '--allow-empty', '-m', 'Initial commit')
+  if (github) await publishRepo(path, github)
+}
+
+const SLUG = /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+$/
+/** `slug` is owner/name; default is the folder name under the logged-in account. */
+export const publishRepo = (path: string, visibility: 'private' | 'public', slug?: string): Promise<unknown> => {
+  if (slug && !SLUG.test(slug)) throw new Error(`Invalid repository name: "${slug}"`)
+  return run(path, 'gh', ['repo', 'create', slug ?? basename(path), `--${visibility}`, '--source', '.', '--push'])
+}
+/** The logged-in GitHub user plus their organisations, for the Owner picker. */
+export async function githubOwners(): Promise<string[]> {
+  const me = (await run('.', 'gh', ['api', 'user', '--jq', '.login'])).trim()
+  const orgs = (await run('.', 'gh', ['api', 'user/orgs', '--jq', '.[].login']).catch(() => '')).split('\n').map((o) => o.trim()).filter(Boolean)
+  return [me, ...orgs]
+}
+/** True when owner/name does not exist yet (gh repo view fails). */
+export const repoAvailable = (slug: string): Promise<boolean> => SLUG.test(slug) ? run('.', 'gh', ['repo', 'view', slug]).then(() => false, () => true) : Promise.resolve(false)
+/** A PR number becomes its head (fetched from origin); anything else is taken as a branch/ref name. */
+export async function resolveBase(repo: string, ref: string): Promise<string> {
+  const t = ref.trim().replace(/^#/, '')
+  if (!/^\d+$/.test(t)) return safeRef(ref.trim(), 'branch name')
+  await git(repo, 'fetch', 'origin', `pull/${t}/head`)
+  return 'FETCH_HEAD'
+}
+
+/** Clones `repo` (URL or owner/name, via the logged-in gh) into `parent/<name>` and returns that path. */
+export async function cloneRepo(repo: string, parent: string): Promise<string> {
+  const name = basename(repo.trim().replace(/\.git$/, '').replace(/\/+$/, ''))
+  if (!name || name.startsWith('-') || repo.trim().startsWith('-')) throw new Error(`Not a repository: "${repo}"`)
+  await run(parent, 'gh', ['repo', 'clone', repo.trim(), name])
+  return join(parent, name)
+}
+
 export async function currentBranch(path: string): Promise<string> {
-  await requireCommits(path)
-  return (await git(path, 'rev-parse', '--abbrev-ref', 'HEAD')).trim()
+  // symbolic-ref also resolves the branch name before its first commit.
+  return (await git(path, 'symbolic-ref', '--quiet', '--short', 'HEAD').catch(() => git(path, 'rev-parse', '--abbrev-ref', 'HEAD'))).trim()
 }
 
 export async function addWorktree(
   repo: string,
   branch: string,
-  baseDir: string
+  baseDir: string,
+  base?: string
 ): Promise<{ path: string; branch: string }> {
   safeRef(branch, 'branch name')
   await requireCommits(repo)
   const path = join(baseDir, branch.replace(/[/\\]/g, '-'))
   await mkdir(baseDir, { recursive: true })
-  await git(repo, 'worktree', 'add', '-b', branch, path)
+  await git(repo, 'worktree', 'add', '-b', branch, path, ...(base ? [safeRef(base, 'base branch')] : []))
   return { path, branch }
 }
 
@@ -106,12 +156,28 @@ export async function readAgentdeckConfig(repo: string): Promise<AgentdeckConfig
   }
   if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg))
     throw new Error('agentdeck.json must be an object')
-  const { copy, setup } = cfg as Record<string, unknown>
+  const { copy, setup, archive, actions } = cfg as Record<string, unknown>
   if (copy !== undefined && !(Array.isArray(copy) && copy.every((c) => typeof c === 'string')))
     throw new Error('agentdeck.json: "copy" must be an array of strings')
   if (setup !== undefined && typeof setup !== 'string')
     throw new Error('agentdeck.json: "setup" must be a string')
-  return { copy: copy as string[] | undefined, setup: setup as string | undefined }
+  if (archive !== undefined && typeof archive !== 'string')
+    throw new Error('agentdeck.json: "archive" must be a string')
+  if (actions !== undefined && !(Array.isArray(actions) && actions.every((a) => a && typeof a.name === 'string' && typeof a.command === 'string')))
+    throw new Error('agentdeck.json: "actions" must be an array of { name, command }')
+  return { copy: copy as string[] | undefined, setup: setup as string | undefined, archive: archive as string | undefined, actions: actions as AgentdeckAction[] | undefined }
+}
+
+/** Mirror of readAgentdeckConfig: empty config removes the file. */
+export async function writeAgentdeckConfig(repo: string, cfg: AgentdeckConfig): Promise<void> {
+  const copy = (cfg.copy ?? []).map((c) => c.trim()).filter(Boolean)
+  copy.forEach((c) => inside(repo, c))
+  const setup = cfg.setup?.trim()
+  const archive = cfg.archive?.trim()
+  const file = join(repo, 'agentdeck.json')
+  const actions = (cfg.actions ?? []).map((a) => ({ name: a.name.trim(), command: a.command.trim() })).filter((a) => a.name && a.command)
+  if (!copy.length && !setup && !archive && !actions.length) return rm(file, { force: true })
+  await writeFile(file, JSON.stringify({ ...(copy.length && { copy }), ...(setup && { setup }), ...(archive && { archive }), ...(actions.length && { actions }) }, null, 2) + '\n')
 }
 
 /** Resolve `rel` under `root`, rejecting absolute paths and `..` escapes. */
@@ -126,21 +192,29 @@ function inside(root: string, rel: string): string {
 export async function setupWorktree(
   repo: string,
   worktreePath: string,
-  cfg: AgentdeckConfig
+  cfg: AgentdeckConfig,
+  env: Record<string, string> = {}
 ): Promise<SetupResult> {
   // Validate every path before touching anything.
   const pairs = (cfg.copy ?? []).map((rel) => [inside(repo, rel), inside(worktreePath, rel)])
+  let copied = 0
   for (const [src, dst] of pairs) {
     // Missing sources (e.g. optional .env) are skipped.
     if (!(await stat(src).catch(() => null))) continue
     await mkdir(dirname(dst), { recursive: true })
     await cp(src, dst, { recursive: true })
+    copied++
   }
-  if (!cfg.setup) return { output: '', exitCode: 0 }
+  return { ...(cfg.setup ? await runScript(cfg.setup, worktreePath, env) : { output: '', exitCode: 0 }), copied }
+}
+
+/** Runs a shell command in `cwd`; never throws, reports the exit code. */
+export async function runScript(command: string, cwd: string, env: Record<string, string> = {}): Promise<SetupResult> {
   const win = process.platform === 'win32'
   try {
-    const { stdout, stderr } = await execFileP(win ? (process.env.ComSpec || 'cmd.exe') : process.env.SHELL || '/bin/sh', [win ? '/c' : '-c', cfg.setup], {
-      cwd: worktreePath,
+    const { stdout, stderr } = await execFileP(win ? (process.env.ComSpec || 'cmd.exe') : process.env.SHELL || '/bin/sh', [win ? '/c' : '-c', command], {
+      cwd,
+      env: { ...process.env, ...env },
       maxBuffer: 64 * 1024 * 1024
     })
     return { output: stdout + stderr, exitCode: 0 }
@@ -163,12 +237,25 @@ export function diff(path: string, scope: 'uncommitted' | { base: string }): Pro
 }
 
 async function diffNow(path: string, scope: 'uncommitted' | { base: string }): Promise<DiffResult> {
-  await requireCommits(path)
-  if (scope === 'uncommitted') await git(path, 'add', '-N', '.') // intent-to-add so untracked files show; index-only, commitAll stages everything anyway
-  const range =
-    scope === 'uncommitted' ? ['HEAD'] : [`${safeRef(scope.base, 'base ref')}...HEAD`]
+  const hasHead = await git(path, 'rev-parse', '--verify', '--quiet', 'HEAD').then(() => true, () => false)
+  if (!hasHead) {
+    // An unborn branch has no committed branch changes. Show its working files as
+    // additions against an empty tree, using an isolated index to preserve staging.
+    if (scope !== 'uncommitted') return { diff: '', files: [] }
+    return withTempIndex(async (env) => {
+      await gitEnv(path, env, 'read-tree', '--empty')
+      const emptyTree = (await gitEnv(path, env, 'write-tree')).trim()
+      await gitEnv(path, env, 'add', '-N', '.')
+      return readDiff(path, [emptyTree], env)
+    })
+  }
+  if (scope === 'uncommitted') await git(path, 'add', '-N', '.')
+  return readDiff(path, scope === 'uncommitted' ? ['HEAD'] : [`${safeRef(scope.base, 'base ref')}...HEAD`])
+}
+
+async function readDiff(path: string, range: string[], env?: NodeJS.ProcessEnv): Promise<DiffResult> {
   const d = (...flags: string[]): Promise<string> =>
-    git(path, 'diff', '--no-renames', ...flags, ...range, '--')
+    gitEnv(path, env ?? {}, 'diff', '--no-renames', ...flags, ...range, '--')
   const [text, numstat, names] = await Promise.all([d(), d('--numstat'), d('--name-status')])
   const status = new Map<string, string>()
   for (const l of names.split('\n').filter(Boolean)) {
@@ -197,8 +284,15 @@ export async function commitAll(path: string, message: string): Promise<void> {
   await git(path, 'commit', '-m', message)
 }
 
-export async function push(path: string): Promise<string> {
-  return git(path, 'push', '-u', 'origin', 'HEAD')
+export async function push(path: string, remote = 'origin', upstream = true): Promise<string> {
+  return git(path, 'push', ...(upstream ? ['-u'] : []), safeRef(remote, 'remote'), 'HEAD')
+}
+
+/** Local and remote-tracking branch names plus remote names, for the repo Git settings. */
+export async function listRefs(path: string): Promise<{ branches: string[]; remotes: string[] }> {
+  const lines = async (...a: string[]): Promise<string[]> => (await git(path, ...a)).split('\n').map((l) => l.trim()).filter(Boolean)
+  const branches = await lines('for-each-ref', '--format=%(refname:short)', 'refs/heads', 'refs/remotes')
+  return { branches: branches.filter((b) => !b.endsWith('/HEAD')), remotes: await lines('remote') }
 }
 
 /** dirty = uncommitted files; ahead = commits not on the upstream (null = no upstream, never pushed). */
@@ -228,8 +322,51 @@ export async function revertHunk(cwd: string, rel: string, index: number): Promi
   } finally { await rm(dir, { recursive: true, force: true }) }
 }
 
+/** The browsable https URL for a git remote (ssh or https), or null when it is not a web remote. */
+export function remoteWebUrl(remote: string): string | null {
+  const m = remote.trim().match(/^(?:git@|ssh:\/\/git@|https?:\/\/)([^:/]+)[:/](.+?)(?:\.git)?\/?$/)
+  return m ? `https://${m[1]}/${m[2]}` : null
+}
+export async function remoteUrl(path: string): Promise<string | null> {
+  return remoteWebUrl(await git(path, 'remote', 'get-url', 'origin').catch(() => ''))
+}
+
 export async function createPr(path: string, title: string, body: string): Promise<string> {
   return (await run(path, 'gh', ['pr', 'create', '--title', title, '--body', body])).trim()
+}
+
+/** Branch-name-safe slug of a prompt: lowercase words joined by '-', at most 40 chars; '' when nothing usable. */
+export function branchSlug(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40).replace(/^-+|-+$/g, '')
+}
+
+/** Renames the checked-out branch. */
+export async function renameBranch(cwd: string, name: string): Promise<void> {
+  await git(cwd, 'check-ref-format', '--branch', safeRef(name, 'branch name'))
+  await git(cwd, 'branch', '-m', name)
+}
+
+/** Squash-merges the branch's PR, or enables automerge (merges once checks pass) when `auto`. */
+export async function mergePr(path: string, auto: boolean): Promise<string> {
+  return (await run(path, 'gh', ['pr', 'merge', '--squash', ...(auto ? ['--auto'] : [])])).trim()
+}
+
+export interface PrCheck { name: string; state: 'pass' | 'fail' | 'pending' }
+export interface PrStatus { number: number; url: string; state: string; checks: PrCheck[]; conflicts: boolean }
+
+/** Maps gh's statusCheckRollup entries (CheckRun or StatusContext) to pass/fail/pending. */
+export function parsePrStatus(json: string): PrStatus {
+  const j = JSON.parse(json)
+  const checks: PrCheck[] = (j.statusCheckRollup ?? []).map((c: { name?: string; context?: string; status?: string; conclusion?: string; state?: string }) => {
+    const v = (c.conclusion || c.state || c.status || '').toUpperCase()
+    return { name: c.name || c.context || 'check', state: ['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(v) ? 'pass' : ['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED'].includes(v) ? 'fail' : 'pending' }
+  })
+  return { number: j.number, url: j.url, state: j.state, checks, conflicts: j.mergeable === 'CONFLICTING' }
+}
+
+/** The PR for the current branch, or null when there is none (or gh is unavailable / not logged in). */
+export async function prStatus(path: string): Promise<PrStatus | null> {
+  try { return parsePrStatus(await run(path, 'gh', ['pr', 'view', '--json', 'number,url,state,statusCheckRollup,mergeable'])) } catch { return null }
 }
 
 // ---- checkpoints: hidden refs/agentdeck/<session>/<time> commits of the whole worktree, taken before each prompt ----
