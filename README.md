@@ -1,6 +1,8 @@
 # AgentDeck
 
-A macOS app for running several AI coding agents (Claude Code and Codex) in parallel, each in its own git worktree, with one place to see which agent needs you.
+AgentDeck is a macOS desktop app for running several AI coding agents (Claude Code and Codex) side by side. Each session works in its own git worktree, so agents never overwrite each other's files or your checked-out branch.
+
+Instead of juggling terminal tabs, you get one sidebar of every session across your projects, with a status dot that shows which agent is working, done, or waiting for you. When an agent wants to run a command or edit a file, you approve or deny it in the app, review its changes as a diff, and commit, push and open a pull request without leaving the window. Agents use your own Claude and Codex CLI logins, and all data stays on your machine.
 
 ![A session with chat, the Changes panel and the commit, push and PR form](docs/screenshots/session.png)
 
