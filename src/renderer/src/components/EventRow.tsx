@@ -6,6 +6,7 @@ import { Tip } from './ui/tooltip'
 import type { ChatEvent, Step } from '../chatItems'
 import { cn } from '../lib/utils'
 import * as C from '@radix-ui/react-collapsible'
+import Avatar from './Avatar'
 import Markdown from './Markdown'
 import Mentions from './Mentions'
 import { Diff, Stat, stats } from './Diff'
@@ -106,7 +107,7 @@ function Hover({ text, ts, right, onFork, children }: { text: string; ts?: numbe
   )
 }
 
-export default function EventRow({ e, onRetry, onFork }: { e: ChatEvent; onRetry?: () => void; onFork?: (ts: number) => void }): React.JSX.Element | null {
+export default function EventRow({ e, session, onRetry, onFork }: { e: ChatEvent; session?: SessionInfo; onRetry?: () => void; onFork?: (ts: number) => void }): React.JSX.Element | null {
   switch (e.type) {
     case 'message':
       return e.role === 'user' ? (
@@ -119,7 +120,10 @@ export default function EventRow({ e, onRetry, onFork }: { e: ChatEvent; onRetry
           <div><Mentions text={e.text} className="rounded-sm bg-white/20 text-inherit" /></div>
         </div></Hover>
       ) : (
-        <Hover text={e.text} ts={e.ts} onFork={onFork}><div className="max-w-[90%] rounded-lg bg-muted px-4 py-3 text-body"><Markdown text={e.text} /></div></Hover>
+        <div className="flex items-start gap-2">
+          {session && <Avatar seed={session.id} avatar={session.avatar} size={24} className="mt-1 shrink-0" />}
+          <Hover text={e.text} ts={e.ts} onFork={onFork}><div className="max-w-[90%] rounded-lg bg-muted px-4 py-3 text-body"><Markdown text={e.text} /></div></Hover>
+        </div>
       )
     case 'tool_call': {
       const d = describe(e.name, e.input)

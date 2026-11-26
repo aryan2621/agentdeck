@@ -1,4 +1,4 @@
-import { Loader2 } from 'lucide-react'
+import Logo from '../Logo'
 import { cn } from '../../lib/utils'
 
 /** Label + control stack used by every form. */
@@ -20,7 +20,7 @@ export const Empty = ({ icon: Icon, children }: { icon: React.ElementType; child
 /** Inline loading line for lists and panels. */
 export const Loading = ({ children = 'Loading…', className }: { children?: React.ReactNode; className?: string }): React.JSX.Element => (
   <div role="status" className={cn('flex items-center gap-2 p-4 text-body text-muted-foreground', className)}>
-    <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />{children}
+    <Logo spin />{children}
   </div>
 )
 

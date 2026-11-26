@@ -51,7 +51,7 @@ export default function App(): React.JSX.Element {
           <div
             role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabIndex={0}
             aria-valuenow={sideW} aria-valuemin={SIDE_MIN} aria-valuemax={SIDE_MAX}
-            className="absolute inset-y-0 -left-px z-20 w-1 cursor-col-resize transition-colors hover:bg-ring focus-visible:bg-ring"
+            className="absolute inset-y-0 -left-px z-20 w-px cursor-col-resize transition-colors before:absolute before:inset-y-0 before:-inset-x-1 focus-visible:bg-ring"
             onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
             onPointerMove={(e) => e.buttons === 1 && resizeSide(e.clientX)}
             onKeyDown={(e) => { if (e.key === 'ArrowLeft') resizeSide(sideW - 16); else if (e.key === 'ArrowRight') resizeSide(sideW + 16) }}

@@ -1,5 +1,5 @@
 import { Slot } from '@radix-ui/react-slot'
-import { Loader2 } from 'lucide-react'
+import Logo from '../Logo'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '../../lib/utils'
 
@@ -24,7 +24,7 @@ export function Button({ className, variant, size, asChild, loading, children, d
   if (asChild) return <Slot className={cn(button({ variant, size }), className)} {...p}>{children}</Slot>
   return (
     <button className={cn(button({ variant, size }), className)} disabled={disabled || loading} aria-busy={loading || undefined} {...p}>
-      {loading && <Loader2 className="animate-spin" aria-hidden />}{children}
+      {loading && <Logo spin />}{children}
     </button>
   )
 }

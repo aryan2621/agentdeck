@@ -28,6 +28,9 @@ npx knip          # unused files and exports
 pnpm build:mac    # unsigned .dmg in dist/
 ```
 
+## Release
+Push a tag (`git tag v1.0.1 && git push --tags`). The Release workflow builds the unsigned `.dmg` and attaches it to a GitHub release.
+
 ## agentdeck.json
 Put this in a repo root to prepare each new worktree:
 ```json

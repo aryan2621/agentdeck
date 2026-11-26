@@ -113,6 +113,7 @@ app.whenReady().then(() => {
     { role: 'windowMenu' }
   ]))
 
+  if (is.dev) app.dock?.setIcon(icon)
   createWindow()
 
   app.on('activate', function () {

@@ -174,7 +174,7 @@ export default function SessionView({ session }: { session: SessionInfo }): Reac
       />
       <div className="flex min-h-0 flex-1">
         <section className="relative flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Chat">
-          <div className="flex min-h-0 flex-1 flex-col gap-3 no-scrollbar overflow-y-auto px-6 py-6 [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[720px]" role="log" aria-label="Conversation" onScroll={(e) => { const t = e.currentTarget; setAtEnd(t.scrollHeight - t.scrollTop - t.clientHeight < 48) }}>
+          <div className="flex min-h-0 flex-1 flex-col gap-3 no-scrollbar overflow-y-auto px-6 py-6 [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[800px]" role="log" aria-label="Conversation" onScroll={(e) => { const t = e.currentTarget; setAtEnd(t.scrollHeight - t.scrollTop - t.clientHeight < 48) }}>
             {!loaded && <Loading>Loading conversation…</Loading>}
             {loaded && items.length === 0 && (
               <div className="flex flex-col gap-3 py-8">
@@ -191,7 +191,7 @@ export default function SessionView({ session }: { session: SessionInfo }): Reac
               ) : e.type === 'approval_request' ? (
                 <ApprovalCard key={e.id} sessionId={id} {...e} />
               ) : (
-                <EventRow key={i} e={e} onRetry={retry} onFork={(ts) => void actions.fork(session, ts)} />
+                <EventRow key={i} e={e} session={session} onRetry={retry} onFork={(ts) => void actions.fork(session, ts)} />
               )
             ])}
             {!busy && (session.status === 'done' || session.status === 'idle') && items.length > 0 && <TurnResult session={session} onView={() => { setTab('diff'); if (!panel) togglePanel() }} />}
@@ -210,7 +210,7 @@ export default function SessionView({ session }: { session: SessionInfo }): Reac
             <div
               role="separator" aria-orientation="vertical" aria-label="Resize side panel" tabIndex={0}
               aria-valuenow={width} aria-valuemin={MIN_W} aria-valuemax={MAX_W}
-              className="relative w-px shrink-0 cursor-col-resize bg-border transition-colors before:absolute before:inset-y-0 before:-inset-x-1 hover:bg-ring focus-visible:bg-ring"
+              className="relative w-px shrink-0 cursor-col-resize bg-border transition-colors before:absolute before:inset-y-0 before:-inset-x-1 focus-visible:bg-ring"
               onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
               onPointerMove={(e) => e.buttons === 1 && resize(window.innerWidth - e.clientX)}
               onKeyDown={(e) => { if (e.key === 'ArrowLeft') resize(width + 24); else if (e.key === 'ArrowRight') resize(width - 24) }}

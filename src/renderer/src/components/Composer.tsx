@@ -115,7 +115,7 @@ export default function Composer({ session, usage }: { session: SessionInfo; usa
   useEffect(() => { setSel(0); setDismissed(false) }, [text])
 
   return (
-    <div className="flex flex-col gap-2 px-6 pt-2 pb-4 [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[720px]">
+    <div className="flex flex-col gap-2 px-6 pt-2 pb-4 [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[800px]">
       {status === 'needs-you' && (
         <p className="rounded-md border border-warn/50 bg-overlay px-3 py-1.5 text-small text-muted-foreground" role="status">Waiting for your approval above. Messages you send now are queued.</p>
       )}
@@ -162,7 +162,7 @@ export default function Composer({ session, usage }: { session: SessionInfo; usa
         onDrop={(e) => { e.preventDefault(); setDrag(false); attach(e.dataTransfer.files) }}
       >
         <input ref={picker} type="file" accept="image/*" multiple hidden onChange={(e) => { if (e.target.files) attach(e.target.files); e.target.value = '' }} />
-        <Tip label="Attach image"><Button variant="outline" size="icon" aria-label="Attach image" onClick={() => picker.current?.click()}><Paperclip /></Button></Tip>
+        <Tip label="Attach image"><Button variant="outline" size="icon" className="rounded-full" aria-label="Attach image" onClick={() => picker.current?.click()}><Paperclip /></Button></Tip>
         <label className="min-w-0 flex-1 self-center">
           <span className="sr-only">Message</span>
           <div className="grid">
