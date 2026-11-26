@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   addWorktree, branchStatus, commitAll, createCheckpoint, createPr, listCheckpoints, rewindPreview, listFiles, restoreCheckpoint, currentBranch, diff, isGitRepo, readAgentdeckConfig,
-  removeWorktree, revertFile, setupWorktree
+  removeWorktree, revertFile, revertHunk, setupWorktree
 } from './git'
 
 let tmp: string
@@ -182,5 +182,19 @@ describe('revertFile', () => {
     await revertFile(repo, 'new.txt', join(repo, 'new.txt'))
     expect(existsSync(join(repo, 'new.txt'))).toBe(false)
     expect(g(repo, 'status', '--porcelain')).toBe('')
+  })
+})
+
+describe('revertHunk', () => {
+  it('reverts only the chosen hunk', async () => {
+    const body = Array.from({ length: 40 }, (_, i) => `line${i}`).join('\n') + '\n'
+    writeFileSync(join(repo, 'f.txt'), body)
+    g(repo, 'add', '.'); g(repo, 'commit', '-m', 'init')
+    writeFileSync(join(repo, 'f.txt'), body.replace('line2\n', 'TWO\n').replace('line35\n', 'THIRTYFIVE\n'))
+    await revertHunk(repo, 'f.txt', 1)
+    const now = readFileSync(join(repo, 'f.txt'), 'utf8')
+    expect(now).toContain('TWO')
+    expect(now).toContain('line35')
+    await expect(revertHunk(repo, 'f.txt', 5)).rejects.toThrow(/no longer exists/)
   })
 })

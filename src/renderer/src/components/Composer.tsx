@@ -10,7 +10,7 @@ import { Tip } from './ui/tooltip'
 import { Select } from './ui/select'
 import { MODE_LABEL } from '../lib/modes'
 import { cn } from '../lib/utils'
-import type { ModelInfo, SessionInfo } from '../../../shared/ipc'
+import type { SessionInfo } from '../../../shared/ipc'
 
 const MENTION = /(^|\s)@(\S*)$/
 const COMMANDS = [
@@ -32,12 +32,9 @@ const readImage = (f: File): Promise<ImageAttachment> =>
 
 /** Model and mode of this session; changes apply from the next message. */
 function Chips({ session, locked }: { session: SessionInfo; locked: boolean }): React.JSX.Element {
-  const [models, setModels] = useState<ModelInfo[]>([])
-  const [modes, setModes] = useState<PermissionMode[]>([session.permissionMode])
-  useEffect(() => {
-    window.api.listModels(session.provider).then(setModels, () => {})
-    window.api.providerModes(session.provider).then(setModes, () => {})
-  }, [session.provider])
+  const c = useStore().catalog[session.provider]
+  const models = c?.models ?? []
+  const modes = c?.modes.length ? c.modes : [session.permissionMode]
   const set = (opts: { model?: string | null; permissionMode?: PermissionMode }): void => { window.api.configureSession(session.id, opts).then(actions.upsertSession, actions.fail) }
   const model = session.model ?? ''
   const modelOpts = [{ value: '', label: 'Provider default' }, ...models.map((m) => ({ value: m.id, label: m.label }))]

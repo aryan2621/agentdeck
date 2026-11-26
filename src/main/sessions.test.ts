@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { existsSync, mkdtempSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDb } from './db'
+import { setSettings } from './settings'
 import { SessionManager } from './sessions'
 import type { AgentEvent, ProviderAdapter } from '../shared/types'
 
@@ -102,5 +104,66 @@ describe('SessionManager', () => {
     expect(m.resolveFile('s1', 'src/a.ts')).toBe('/repo/src/a.ts')
     expect(() => m.resolveFile('s1', '../etc/passwd')).toThrow('outside')
     expect(() => m.resolveFile('s1', '/etc/passwd')).toThrow('outside')
+  })
+})
+
+describe('resolveFile', () => {
+  const setup = () => {
+    const repo = mkdtempSync(join(tmpdir(), 'ad-rf-'))
+    const outside = mkdtempSync(join(tmpdir(), 'ad-out-'))
+    const db = openDb(':memory:')
+    db.addProject({ id: 'p', path: repo, name: 'repo' })
+    const { a } = fakeAdapter()
+    const m = new SessionManager({ db, adapters: { claude: a, codex: a }, worktreesDir: '/wt', emit: { event: () => {}, session: () => {} } })
+    return { repo, outside, m, create: () => m.createSession({ projectId: 'p', provider: 'claude', permissionMode: 'supervised', useWorktree: false }) }
+  }
+
+  it('accepts a file named ..foo, rejects ../ and symlink escapes', async () => {
+    const { repo, outside, create, m } = setup()
+    writeFileSync(join(repo, '..foo'), '')
+    symlinkSync(outside, join(repo, 'link'))
+    const s = await create()
+    expect(m.resolveFile(s.id, '..foo')).toBe(join(repo, '..foo'))
+    expect(() => m.resolveFile(s.id, '../x')).toThrow('outside')
+    expect(() => m.resolveFile(s.id, 'link/secret')).toThrow('outside')
+  })
+})
+
+describe('setup script trust', () => {
+  it('does not create a worktree when the script is refused, and runs it when approved', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'ad-trust-'))
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: repo })
+    git('init', '-q'); git('config', 'user.email', 't@t'); git('config', 'user.name', 't')
+    writeFileSync(join(repo, 'agentdeck.json'), JSON.stringify({ setup: 'touch ran' }))
+    git('add', '.'); git('commit', '-qm', 'i')
+    const wts = mkdtempSync(join(tmpdir(), 'ad-wts-'))
+    const db = openDb(':memory:')
+    db.addProject({ id: 'p', path: repo, name: 'repo' })
+    const { a } = fakeAdapter()
+    const mk = (ok: boolean) => new SessionManager({ db, adapters: { claude: a, codex: a }, worktreesDir: wts, confirmSetup: async () => ok, emit: { event: () => {}, session: () => {} } })
+    const input = { projectId: 'p', provider: 'claude' as const, permissionMode: 'supervised' as const, useWorktree: true }
+
+    await expect(mk(false).createSession(input)).rejects.toThrow('not approved')
+    expect(existsSync(join(wts, 'repo'))).toBe(false)
+
+    const s = await mk(true).createSession(input)
+    expect(existsSync(join(s.worktreePath!, 'ran'))).toBe(true)
+  })
+})
+
+describe('parallel cap', () => {
+  it('blocks a new turn when the cap is reached by other working sessions', async () => {
+    const db = openDb(':memory:')
+    db.addProject({ id: 'p', path: '/repo', name: 'repo' })
+    const { a } = fakeAdapter()
+    const m = new SessionManager({ db, adapters: { claude: a, codex: a }, worktreesDir: '/wt', emit: { event: () => {}, session: () => {} } })
+    const mk = () => m.createSession({ projectId: 'p', provider: 'claude', permissionMode: 'supervised', useWorktree: false })
+    const [s1, s2] = [await mk(), await mk()]
+    db.updateSession(s1.id, { status: 'working' })
+    setSettings({ maxParallel: 1 })
+    try {
+      await expect(m.sendMessage(s2.id, 'hi')).rejects.toThrow('Parallel limit')
+      await expect(m.sendMessage(s1.id, 'hi')).resolves.toBeUndefined() // its own turn doesn't count against itself
+    } finally { setSettings({ maxParallel: 0 }) }
   })
 })

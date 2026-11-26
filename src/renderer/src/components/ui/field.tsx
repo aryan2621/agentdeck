@@ -28,7 +28,7 @@ export const SettingsSection = ({ title, description, action, children }: { titl
   <section className="flex flex-col gap-1">
     <div className="flex items-center justify-between gap-2"><h2 className="text-body font-medium text-foreground">{title}</h2>{action}</div>
     {description && <p className="text-body text-muted-foreground">{description}</p>}
-    <div className="mt-2 flex flex-col divide-y divide-border border-y border-border">{children}</div>
+    <div className="mt-2 flex flex-col divide-y divide-border border-t border-border">{children}</div>
   </section>
 )
 

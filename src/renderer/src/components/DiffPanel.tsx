@@ -24,7 +24,7 @@ export default function DiffPanel({ sessionId, status }: { sessionId: string; st
   const [engaged, setEngaged] = useState(false) // once there was something to ship, keep the stepper so Create PR stays reachable after pushing
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [busy, setBusy] = useState(false)
-  const [reverting, setReverting] = useState<string | null>(null)
+  const [reverting, setReverting] = useState<{ path: string; hunk?: number } | null>(null)
   const [info, setInfo] = useState('')
 
   const [noCommits, setNoCommits] = useState(false)
@@ -80,9 +80,9 @@ export default function DiffPanel({ sessionId, status }: { sessionId: string; st
               }>
                 <div className="flex justify-end gap-1">
                   {f.status !== 'D' && <Tip label="Open file"><Button variant="ghost" size="icon" aria-label="Open file" onClick={() => window.api.openFile(sessionId, f.path).catch(actions.fail)}><ExternalLink /></Button></Tip>}
-                  {scope === 'uncommitted' && <Tip label="Revert file"><Button variant="ghost" size="icon" aria-label="Revert file" onClick={() => setReverting(f.path)}><Undo2 /></Button></Tip>}
+                  {scope === 'uncommitted' && <Tip label="Revert file"><Button variant="ghost" size="icon" aria-label="Revert file" onClick={() => setReverting({ path: f.path })}><Undo2 /></Button></Tip>}
                 </div>
-                <Diff diff={chunks[i] ?? ''} path={f.path} />
+                <Diff diff={chunks[i] ?? ''} path={f.path} onRevertHunk={scope === 'uncommitted' ? (hunk) => setReverting({ path: f.path, hunk }) : undefined} />
               </Disclosure>
             ))}
           </div>
@@ -111,9 +111,9 @@ export default function DiffPanel({ sessionId, status }: { sessionId: string; st
       )}
       <ConfirmDialog
         open={!!reverting} onOpenChange={(o) => !o && setReverting(null)} destructive
-        title={`Revert ${reverting?.split('/').pop() ?? 'file'}?`} confirmLabel="Revert"
-        description="Discards this file's uncommitted changes. This can't be undone."
-        onConfirm={() => reverting && run(async () => { await window.api.revertFile(sessionId, reverting); actions.ok('Reverted') })}
+        title={reverting?.hunk === undefined ? `Revert ${reverting?.path.split('/').pop() ?? 'file'}?` : `Revert this change in ${reverting.path.split('/').pop()}?`} confirmLabel="Revert"
+        description={reverting?.hunk === undefined ? "Discards this file's uncommitted changes. This can't be undone." : "Discards this block of uncommitted changes. This can't be undone."}
+        onConfirm={() => reverting && run(async () => { await (reverting.hunk === undefined ? window.api.revertFile(sessionId, reverting.path) : window.api.revertHunk(sessionId, reverting.path, reverting.hunk)); actions.ok('Reverted') })}
       />
     </div>
   )

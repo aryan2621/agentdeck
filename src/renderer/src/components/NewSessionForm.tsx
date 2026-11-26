@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import type { ModelInfo } from '../../../shared/ipc'
 import { PROVIDERS, hasAccounts, type PermissionMode, type ProviderId } from '../../../shared/types'
 import { actions, useStore } from '../store'
 import { Button } from './ui/button'
@@ -39,10 +38,12 @@ function Picker({ label, count, value, onChange, children }: { label: string; co
 }
 
 export default function NewSessionForm({ projectId }: { projectId: string }): React.JSX.Element {
-  const { accounts, forkText, settings } = useStore()
+  const { accounts, forkText, settings, catalog } = useStore()
   const [provider, setProvider] = useState<ProviderId>(settings.defaultProvider)
-  const [models, setModels] = useState<ModelInfo[]>([])
-  const [modes, setModes] = useState<PermissionMode[]>(MODES)
+  const entry = catalog[provider]
+  const models = entry?.models ?? []
+  const modes = entry?.modes.length ? entry.modes : MODES
+  const loading = !entry
   const [model, setModel] = useState('')
   const [mode, setMode] = useState<PermissionMode>('supervised')
   const [useWorktree, setUseWorktree] = useState(true)
@@ -50,18 +51,13 @@ export default function NewSessionForm({ projectId }: { projectId: string }): Re
   const [msg, setMsg] = useState(forkText)
   const [busy, setBusy] = useState(false)
   const [name, setName] = useState('')
-  const [loading, setLoading] = useState(true)
   const [look, setLook] = useState(() => ({ color: Math.floor(Math.random() * COLORS.length), shape: Math.floor(Math.random() * SHAPES.length) }))
 
-  useEffect(() => {
-    let live = true
-    setLoading(true)
-    Promise.all([window.api.listModels(provider), window.api.providerModes(provider)]).then(([m, pm]) => {
-      if (!live) return
-      setModels(m); setModel(m.find((x) => x.id === settings.defaultModels[provider])?.id ?? m[0]?.id ?? ''); setModes(pm); setMode(pm.includes(settings.defaultMode) ? settings.defaultMode : (pm[0] ?? 'supervised')); setLoading(false)
-    }, (err) => { setLoading(false); actions.fail(err) })
-    return () => { live = false }
-  }, [provider])
+  useEffect(() => { // defaults for the chosen provider, once its models are known
+    if (!entry) return
+    const m = entry.models, pm = entry.modes
+    setModel(m.find((x) => x.id === settings.defaultModels[provider])?.id ?? m[0]?.id ?? ''); setMode(pm.includes(settings.defaultMode) ? settings.defaultMode : (pm[0] ?? 'supervised'))
+  }, [provider, entry])
 
   const submit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
@@ -119,7 +115,7 @@ export default function NewSessionForm({ projectId }: { projectId: string }): Re
       </div>
       <div className="mx-auto mb-auto flex w-full max-w-[640px] flex-col gap-2 px-8 pb-10">
         <span className="text-small text-faint">Suggestions</span>
-        <div className="flex flex-col divide-y divide-border border-y border-border">
+        <div className="flex flex-col divide-y divide-border border-t border-border">
           {STARTERS.map((s) => (
             <button key={s.title} type="button" onClick={() => setMsg(s.prompt)} className="flex items-baseline gap-3 px-2 py-2 text-left transition-colors duration-100 hover:bg-accent focus-visible:bg-accent">
               <span className="text-body font-medium text-foreground">{s.title}</span>

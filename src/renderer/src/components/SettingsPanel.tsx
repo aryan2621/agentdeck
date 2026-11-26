@@ -14,8 +14,8 @@ import { Row } from './ui/row'
 import { Kbd } from './ui/kbd'
 import { ConfirmDialog } from './ui/dialog'
 import { SHORTCUTS } from '../lib/shortcuts'
-import type { ModelInfo } from '../../../shared/ipc'
 import { cn } from '../lib/utils'
+import UsageView from './UsageView'
 
 const NOTIFY: { kind: NotifyKind; label: string }[] = [
   { kind: 'done', label: 'A session finishes' },
@@ -23,19 +23,18 @@ const NOTIFY: { kind: NotifyKind; label: string }[] = [
   { kind: 'error', label: 'A session fails' },
 ]
 
-const SECTIONS = ['General', 'Appearance', 'Accounts', 'Notifications', 'Keyboard shortcuts', 'CLI paths'] as const
+const SECTIONS = ['General', 'Appearance', 'Accounts', 'Notifications', 'Keyboard shortcuts', 'CLI paths', 'Usage and cost'] as const
 const THEMES = [{ value: 'system', label: 'Match system' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }]
 
 export default function SettingsPanel(): React.JSX.Element {
-  const { settings, accounts, view } = useStore()
+  const { settings, accounts, view, catalog } = useStore()
   const [label, setLabel] = useState('')
   const [prov, setProv] = useState<AccountProvider>('claude')
   const [tab, setTab] = useState<(typeof SECTIONS)[number]>(SECTIONS.find((s) => view.kind === 'settings' && s === view.tab) ?? 'General')
   const [saved, setSaved] = useState(false)
   useEffect(() => { if (!saved) return; const t = setTimeout(() => setSaved(false), 1500); return () => clearTimeout(t) }, [saved])
   const save = (patch: Parameters<typeof actions.saveSettings>[0]): Promise<void> => actions.saveSettings(patch).then(() => setSaved(true))
-  const [models, setModels] = useState<ModelInfo[] | null>(null)
-  useEffect(() => { setModels(null); window.api.listModels(settings.defaultProvider).then(setModels, () => setModels([])) }, [settings.defaultProvider])
+  const models = catalog[settings.defaultProvider]?.models ?? null
   const [removing, setRemoving] = useState<{ id: string; label: string } | null>(null)
   const [found, setFound] = useState<Record<string, boolean>>({})
   useEffect(() => {
@@ -59,6 +58,9 @@ export default function SettingsPanel(): React.JSX.Element {
             </SettingsRow>
             <SettingsRow label="Permission mode">
               <Select label="Default permission mode" className="w-48" value={settings.defaultMode} onChange={(v) => void save({ defaultMode: v as PermissionMode })} options={MODES.map((m) => ({ value: m, label: MODE_LABEL[m] }))} />
+            </SettingsRow>
+            <SettingsRow label="Parallel sessions" description="Most sessions that can run a turn at once.">
+              <Select label="Parallel sessions" className="w-48" value={String(settings.maxParallel)} onChange={(v) => void save({ maxParallel: Number(v) })} options={[0, 1, 2, 3, 4, 6, 8].map((n) => ({ value: String(n), label: n ? String(n) : 'Unlimited' }))} />
             </SettingsRow>
             <SettingsRow label="Model" description="Used when a session does not pick one.">
               {models === null ? <Loading>Loading models…</Loading> : (
@@ -111,6 +113,7 @@ export default function SettingsPanel(): React.JSX.Element {
             ))}
           </SettingsSection>
         )}
+        {tab === 'Usage and cost' && <UsageView />}
         {tab === 'CLI paths' && (
           <SettingsSection title="Executables" description="Leave empty to use the command on your PATH. Applies to sessions started after you change it.">
             {PROVIDERS.map((p) => (

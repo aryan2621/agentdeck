@@ -68,6 +68,10 @@ export interface Settings {
   /** Preselected model id per provider; empty = first listed. */
   defaultModels: Partial<Record<ProviderId, string>>
   theme: 'system' | 'light' | 'dark'
+  /** Most sessions allowed to run a turn at once; 0 = unlimited. */
+  maxParallel: number
+  /** Approved agentdeck.json setup scripts: project path -> sha256 of the script. Main-only; never settable from the renderer. */
+  trustedSetups: Record<string, string>
 }
 export const DEFAULT_SETTINGS: Settings = {
   defaultProvider: 'claude',
@@ -76,4 +80,6 @@ export const DEFAULT_SETTINGS: Settings = {
   cliPaths: {},
   defaultModels: {},
   theme: 'system',
+  maxParallel: 0,
+  trustedSetups: {},
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowDown, Check, GitCompare, GitFork, PanelRight, MoreHorizontal, Archive, Pencil, SquareTerminal as TerminalIcon, Undo2, User } from 'lucide-react'
+import { ArrowDown, Check, GitCompare, GitFork, PanelRight, MoreHorizontal, Archive, Download, Pencil, SquareTerminal as TerminalIcon, Undo2, User } from 'lucide-react'
 import { actions, useStore } from '../store'
 import { ConfirmDialog } from './ui/dialog'
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSub, MenuSubContent, MenuSubTrigger, MenuTrigger } from './ui/menu'
@@ -134,6 +134,7 @@ export default function SessionView({ session }: { session: SessionInfo }): Reac
           <MenuContent>
             <MenuItem onSelect={() => { setName(session.title); setDlg('rename') }}><Pencil />Rename</MenuItem>
             <MenuItem onSelect={() => void actions.fork(session)}><GitFork />Fork into new session</MenuItem>
+            <MenuItem onSelect={() => void window.api.exportSession(id).catch(actions.fail)}><Download />Export as Markdown</MenuItem>
             {hasAccounts(session.provider) && (
               <MenuSub>
                 <MenuSubTrigger disabled={busy}><User />Move to account</MenuSubTrigger>
@@ -174,7 +175,7 @@ export default function SessionView({ session }: { session: SessionInfo }): Reac
       />
       <div className="flex min-h-0 flex-1">
         <section className="relative flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Chat">
-          <div className="flex min-h-0 flex-1 flex-col gap-3 no-scrollbar overflow-y-auto px-6 py-6 [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[800px]" role="log" aria-label="Conversation" onScroll={(e) => { const t = e.currentTarget; setAtEnd(t.scrollHeight - t.scrollTop - t.clientHeight < 48) }}>
+          <div className="flex min-h-0 flex-1 flex-col gap-3 no-scrollbar overflow-y-auto px-6 py-6 [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[800px] [&>*]:[content-visibility:auto] [&>*]:[contain-intrinsic-size:auto_96px]" role="log" aria-label="Conversation" onScroll={(e) => { const t = e.currentTarget; setAtEnd(t.scrollHeight - t.scrollTop - t.clientHeight < 48) }}>
             {!loaded && <Loading>Loading conversation…</Loading>}
             {loaded && items.length === 0 && (
               <div className="flex flex-col gap-3 py-8">

@@ -1,14 +1,18 @@
+import { Undo2 } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { Button } from './ui/button'
+import { Tip } from './ui/tooltip'
 import { useTokens } from './Markdown'
 
 /** One file's unified diff: git headers stripped, hunks as line-numbered rows. */
-export function Diff({ diff, path = '' }: { diff: string; path?: string }): React.JSX.Element {
+export function Diff({ diff, path = '', onRevertHunk }: { diff: string; path?: string; onRevertHunk?: (hunk: number) => void }): React.JSX.Element {
   let o = 0
   let n = 0
-  const rows = diff.replace(/\n$/, '').split('\n').flatMap((l, i) => {
+  let hunk = 0
+  const rows: { i: number; kind: string; l: string; a: string; b: string; h?: number }[] = diff.replace(/\n$/, '').split('\n').flatMap((l, i) => {
     if (/^(diff --git|index |--- |\+\+\+ |new file|deleted file|similarity|rename )/.test(l)) return []
     const h = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@ ?(.*)/.exec(l)
-    if (h) { o = +h[1]; n = +h[2]; return [{ i, kind: 'hunk', l: h[3] || `Line ${n}`, a: '', b: '' }] }
+    if (h) { o = +h[1]; n = +h[2]; return [{ i, kind: 'hunk', l: h[3] || `Line ${n}`, a: '', b: '', h: hunk++ }] }
     if (l.startsWith('+')) return [{ i, kind: 'add', l: l.slice(1), a: '', b: String(n++) }]
     if (l.startsWith('-')) return [{ i, kind: 'del', l: l.slice(1), a: String(o++), b: '' }]
     if (l.startsWith('\\')) return []
@@ -22,7 +26,10 @@ export function Diff({ diff, path = '' }: { diff: string; path?: string }): Reac
     <pre className="shiki-host overflow-x-auto py-1 font-mono text-small leading-5">
       {rows.map((r) =>
         r.kind === 'hunk' ? (
-          <span key={r.i} className="my-1 block truncate bg-panel px-3 py-0.5 text-meta text-faint select-none">{r.l}</span>
+          <span key={r.i} className="my-1 flex items-center bg-panel px-3 py-0.5 text-meta text-faint select-none">
+            <span className="min-w-0 flex-1 truncate">{r.l}</span>
+            {onRevertHunk && <Tip label="Revert hunk"><Button variant="ghost" size="icon" className="size-6" aria-label={`Revert hunk ${r.h! + 1}`} onClick={() => onRevertHunk(r.h!)}><Undo2 className="size-3" /></Button></Tip>}
+          </span>
         ) : (
           <span key={r.i} className={cn('flex whitespace-pre', r.kind === 'add' && 'bg-add', r.kind === 'del' && 'bg-del')}>
             <span className="tnum w-9 shrink-0 pr-2 text-right text-faint select-none">{r.kind === 'add' ? r.b : r.a}</span>

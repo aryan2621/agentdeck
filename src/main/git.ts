@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { cp, mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 const execFileP = promisify(execFile)
 
@@ -118,7 +118,7 @@ export async function readAgentdeckConfig(repo: string): Promise<AgentdeckConfig
 function inside(root: string, rel: string): string {
   const full = resolve(root, rel)
   const r = relative(resolve(root), full)
-  if (isAbsolute(rel) || r === '' || r.startsWith('..') || isAbsolute(r))
+  if (isAbsolute(rel) || r === '' || r === '..' || r.startsWith('..' + sep) || isAbsolute(r))
     throw new Error(`Path escapes the repo root: "${rel}"`)
   return full
 }
@@ -213,6 +213,19 @@ export async function revertFile(cwd: string, rel: string, full: string): Promis
   const inHead = await git(cwd, 'cat-file', '-e', `HEAD:${rel}`).then(() => true, () => false)
   if (inHead) await git(cwd, 'checkout', 'HEAD', '--', rel)
   else { await git(cwd, 'rm', '-r', '-f', '--cached', '--ignore-unmatch', '--', rel); await rm(full, { recursive: true, force: true }) }
+}
+
+/** Discards one hunk (0-based, as shown in the uncommitted diff) of a file by reverse-applying it. The patch is rebuilt here from git, never taken from the renderer. */
+export async function revertHunk(cwd: string, rel: string, index: number): Promise<void> {
+  const file = (await diff(cwd, 'uncommitted')).diff.split(/^(?=diff --git )/m).find((c) => c.startsWith(`diff --git a/${rel} b/${rel}\n`))
+  const [head, ...hunks] = (file ?? '').split(/^(?=@@ )/m)
+  if (!hunks[index]) throw new Error('That change no longer exists; refresh the diff')
+  const dir = await mkdtemp(join(tmpdir(), 'agentdeck-hunk-'))
+  try {
+    const patch = join(dir, 'p.diff')
+    await writeFile(patch, head + hunks[index])
+    await git(cwd, 'apply', '-R', '--recount', patch)
+  } finally { await rm(dir, { recursive: true, force: true }) }
 }
 
 export async function createPr(path: string, title: string, body: string): Promise<string> {

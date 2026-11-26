@@ -1,5 +1,6 @@
 // Typed bridge between renderer and main. Main implements it, preload exposes it as window.api.
 import type { Checkpoint, DiffResult } from '../main/git'
+import type { UsageRow } from '../main/db'
 import type { HistoryItem, McpServer } from '../main/history'
 import type { AgentEvent, ApprovalDecision, ImageAttachment, LimitWindow, PermissionMode, ProviderId, SessionStatus, Settings } from './types'
 
@@ -91,6 +92,10 @@ export interface AgentDeckApi {
   openFile(sessionId: string, relPath: string): Promise<void>
   /** Discards the file's uncommitted changes (restores from HEAD, or deletes a new file). Refused while working. */
   revertFile(sessionId: string, relPath: string): Promise<void>
+  revertHunk(sessionId: string, relPath: string, index: number): Promise<void>
+  /** Saves the transcript as Markdown via a save dialog; null if cancelled. */
+  exportSession(sessionId: string): Promise<string | null>
+  usageSummary(): Promise<UsageRow[]>
   sessionUsage(sessionId: string): Promise<{ inputTokens: number; outputTokens: number; costUsd: number }>
   /** Starts (or reattaches to) the session's shell in its worktree; resolves with output so far. */
   termOpen(sessionId: string): Promise<string>

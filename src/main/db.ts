@@ -3,6 +3,7 @@ import type { AgentEvent, PermissionMode, ProviderId, SessionStatus } from '../s
 
 export interface Project { id: string; path: string; name: string }
 export interface Account { id: string; provider: ProviderId; label: string; configDir: string | null }
+export interface UsageRow { sessionId: string; title: string | null; projectId: string; provider: string; createdAt: number; inputTokens: number; outputTokens: number; costUsd: number }
 export interface Session {
   id: string
   projectId: string
@@ -47,6 +48,8 @@ export function openDb(path: string) {
   const from = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
   MIGRATIONS.slice(Math.max(from, 1) - 1).forEach((m) => db.exec(m))
   db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+  // No agent survives a restart; a crash would otherwise leave sessions stuck on 'working' and block revert/rewind/quit.
+  db.exec("UPDATE sessions SET status = 'idle' WHERE status IN ('working', 'needs-you')")
 
   const all = <T>(sql: string, ...p: (string | number | null)[]) => db.prepare(sql).all(...p) as T[]
   const run = (sql: string, ...p: (string | number | null)[]) => db.prepare(sql).run(...p)
@@ -72,7 +75,9 @@ export function openDb(path: string) {
     appendEvent: (sessionId: string, e: AgentEvent) =>
       void run('INSERT INTO events (sessionId, ts, json) VALUES (?, ?, ?)', sessionId, Date.now(), JSON.stringify(e)),
     listEvents: (sessionId: string) =>
-      all<{ json: string; ts: number }>('SELECT json, ts FROM events WHERE sessionId = ? ORDER BY id', sessionId).map((r) => ({ ...JSON.parse(r.json), ts: r.ts }) as AgentEvent),
+      all<{ json: string; ts: number }>('SELECT json, ts FROM events WHERE sessionId = ? ORDER BY id', sessionId).flatMap((r) => {
+        try { return [{ ...JSON.parse(r.json), ts: r.ts } as AgentEvent] } catch { return [] } // one corrupt row must not hide the transcript
+      }),
     /** Chat messages (not streaming partials) containing `q`, newest first. */
     searchMessages: (q: string, limit = 50) =>
       all<{ sessionId: string; text: string }>(
@@ -89,6 +94,9 @@ export function openDb(path: string) {
            outputTokens = outputTokens + excluded.outputTokens, costUsd = costUsd + excluded.costUsd`,
         sessionId, u.inputTokens ?? 0, u.outputTokens ?? 0, u.costUsd ?? 0,
       ),
+    /** Every session that has spent anything, for the cost view. */
+    listUsage: () =>
+      all<UsageRow>('SELECT u.sessionId, s.title, s.projectId, s.provider, s.createdAt, u.inputTokens, u.outputTokens, u.costUsd FROM usage u JOIN sessions s ON s.id = u.sessionId ORDER BY u.costUsd DESC'),
     getUsage: (sessionId: string): Usage =>
       all<Usage>('SELECT inputTokens, outputTokens, costUsd FROM usage WHERE sessionId = ?', sessionId)[0] ?? { inputTokens: 0, outputTokens: 0, costUsd: 0 },
   }

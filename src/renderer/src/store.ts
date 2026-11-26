@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from 'react'
-import { DEFAULT_SETTINGS, type ProviderId, type Settings } from '../../shared/types'
+import { DEFAULT_SETTINGS, PROVIDERS, hasAccounts, type LimitWindow, type PermissionMode, type ProviderId, type Settings } from '../../shared/types'
 import { forkPrompt, lastText } from './transcript'
-import type { AccountInfo, ProjectInfo, SessionInfo } from '../../shared/ipc'
+import type { AccountInfo, ModelInfo, ProjectInfo, SessionInfo } from '../../shared/ipc'
+import type { UsageRow } from '../../main/db'
 
 type View =
   | { kind: 'session' }
@@ -30,9 +31,13 @@ interface State {
   sidebarCollapsed: boolean
   recents: string[] // last selected sessions, newest first
   seen: Record<string, number> // when you last left each session (marks what is new on return)
+  // Fetched once at startup so screens render instantly instead of loading on every visit.
+  catalog: Partial<Record<ProviderId, { models: ModelInfo[]; modes: PermissionMode[] }>>
+  limits: Record<string, LimitWindow[]>
+  usage: UsageRow[] | null
 }
 
-let state: State = { projects: [], sessions: {}, selectedId: null, view: { kind: 'session' }, toasts: [], accounts: [], settings: DEFAULT_SETTINGS, forkText: '', queues: {}, unread: {}, previews: {}, sidebarCollapsed: localStorage.getItem('sidebar-collapsed') === '1', recents: load('recents', []), seen: load('seen', {}) }
+let state: State = { projects: [], sessions: {}, selectedId: null, view: { kind: 'session' }, toasts: [], accounts: [], settings: DEFAULT_SETTINGS, forkText: '', queues: {}, unread: {}, previews: {}, sidebarCollapsed: localStorage.getItem('sidebar-collapsed') === '1', recents: load('recents', []), seen: load('seen', {}), catalog: {}, limits: {}, usage: null }
 const listeners = new Set<() => void>()
 const set = (p: Partial<State>): void => {
   state = { ...state, ...p }
@@ -65,11 +70,23 @@ export const actions = {
       set({ accounts: await window.api.listAccounts(), settings: await window.api.getSettings() })
       set({ projects, sessions: Object.fromEntries(projects.map((p, i) => [p.id, lists[i]])) })
       // shortcut: one getEvents per session at startup; add a lastMessage field to listSessions if this gets slow.
+      actions.refreshCatalog(); actions.refreshLimits(); actions.refreshUsage()
       lists.flat().forEach((s) => window.api.getEvents(s.id).then((ev) => set({ previews: { ...state.previews, [s.id]: lastText(ev) } }), () => {}))
     } catch (e) {
       fail(e)
     }
   },
+  /** Models and modes per provider. A provider that fails (CLI missing) gets an empty entry so forms don't wait forever. */
+  refreshCatalog(): void {
+    PROVIDERS.forEach(({ id }) => Promise.all([window.api.listModels(id), window.api.providerModes(id)]).then(
+      ([models, modes]) => set({ catalog: { ...state.catalog, [id]: { models, modes } } }),
+      () => set({ catalog: { ...state.catalog, [id]: { models: [], modes: [] } } })
+    ))
+  },
+  refreshLimits(): void {
+    PROVIDERS.filter((p) => hasAccounts(p.id)).forEach(({ id }) => window.api.getLimits(id).then((w) => set({ limits: { ...state.limits, [id]: w } }), () => {}))
+  },
+  refreshUsage(): void { window.api.usageSummary().then((usage) => set({ usage }), fail) },
   async addProject(path?: string): Promise<void> {
     try {
       const p = await window.api.addProject(path)
@@ -119,7 +136,10 @@ export const actions = {
   openSettings: (tab?: string): void => set({ view: { kind: 'settings', tab } }),
   closeSettings: (): void => set({ view: { kind: 'session' } }),
   async saveSettings(patch: Partial<Settings>): Promise<void> {
-    try { set({ settings: await window.api.setSettings(patch) }) } catch (e) { fail(e) }
+    try {
+      set({ settings: await window.api.setSettings(patch) })
+      if (patch.cliPaths) { actions.refreshCatalog(); actions.refreshLimits() } // a different binary can list different models
+    } catch (e) { fail(e) }
   },
   openTools: (projectId: string): void => set({ view: { kind: 'tools', projectId } }),
   openNew: (projectId: string, text = ''): void => set({ view: { kind: 'new', projectId }, forkText: text }),

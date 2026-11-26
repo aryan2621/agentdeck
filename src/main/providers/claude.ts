@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module'
 import { cliPath } from '../settings'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { Options, Query, SDKMessage, SDKUserMessage, PermissionResult } from '@anthropic-ai/claude-agent-sdk'
@@ -5,6 +6,14 @@ import type {
   ImageAttachment,
   AgentEvent, ApprovalDecision, LimitWindow, PermissionMode, ProviderAdapter, StartOptions
 } from '../../shared/types'
+
+/** Native claude binary from the SDK's platform package. Packaged, it must be the unpacked copy: a path inside app.asar can't be spawned (ENOTDIR). */
+function bundledClaude(): string | undefined {
+  try {
+    return createRequire(__filename).resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/claude`).replace('app.asar', 'app.asar.unpacked')
+  } catch { return undefined }
+}
+const claudeExe = (): string | undefined => cliPath('claude', '') || bundledClaude()
 
 export type QueryFn = (p: { prompt: AsyncIterable<SDKUserMessage>; options?: Options }) => Query
 
@@ -73,7 +82,7 @@ export function createClaudeProvider(queryFn: QueryFn = query as QueryFn): Provi
   // Throwaway query used only for account-level calls (models, usage).
   async function probe<T>(configDir: string | undefined, fn: (q: Query) => Promise<T>): Promise<T> {
     const input = inputChannel()
-    const q = queryFn({ prompt: input.iter, options: { env: envFor(configDir) } })
+    const q = queryFn({ prompt: input.iter, options: { env: envFor(configDir), pathToClaudeCodeExecutable: claudeExe() } })
     try {
       return await fn(q)
     } finally {
@@ -143,7 +152,7 @@ export function createClaudeProvider(queryFn: QueryFn = query as QueryFn): Provi
       const options: Options = {
         cwd: opts.cwd,
         model: opts.model,
-        ...(cliPath('claude', '') ? { pathToClaudeCodeExecutable: cliPath('claude', '') } : {}),
+        pathToClaudeCodeExecutable: claudeExe(),
         resume: opts.resumeToken,
         env: envFor(opts.configDir),
         permissionMode: SDK_MODES[opts.permissionMode],

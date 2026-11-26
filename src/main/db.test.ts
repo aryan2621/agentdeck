@@ -64,4 +64,30 @@ describe('db', () => {
     db.close()
     openDb(path).close() // reopening at the current version must not re-run the migration
   })
+
+  it('resets stuck sessions on open and skips corrupt event rows', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'ad-db-')), 'a.db')
+    const db = openDb(path)
+    db.addProject({ id: 'p', name: 'p', path: '/p' })
+    db.createSession({ ...session, id: 's', projectId: 'p', status: 'working' })
+    db.appendEvent('s', { type: 'message', role: 'user', text: 'hi' })
+    db.close()
+    const raw = new DatabaseSync(path)
+    raw.exec("INSERT INTO events (sessionId, ts, json) VALUES ('s', 1, '{bad')")
+    raw.close()
+    const re = openDb(path)
+    expect(re.listSessions('p')[0].status).toBe('idle')
+    expect(re.listEvents('s')).toHaveLength(1)
+    re.close()
+  })
+})
+
+describe('listUsage', () => {
+  it('lists spending sessions, biggest first', () => {
+    const db = openDb(':memory:')
+    for (const id of ['a', 'b']) db.createSession({ ...session, id })
+    db.addUsage('a', { costUsd: 1, inputTokens: 5 })
+    db.addUsage('b', { costUsd: 3 })
+    expect(db.listUsage().map((r) => r.sessionId)).toEqual(['b', 'a'])
+  })
 })

@@ -1,15 +1,28 @@
 import { autoUpdater } from 'electron-updater'
 import { app, dialog, Menu, shell, BrowserWindow, Notification } from 'electron'
+import { createHash } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
+import { writeFile } from 'node:fs/promises'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { openDb } from './db'
-import { getSettings, loadSettings } from './settings'
+import { getSettings, loadSettings, setSettings } from './settings'
 import { applyTheme, registerIpc, pickFolder } from './ipc'
 import { SessionManager } from './sessions'
 import { PtyManager } from './pty'
 import { createClaudeProvider } from './providers/claude'
 import { CodexAdapter } from './providers/codex'
 import icon from '../../resources/icon.png?asset'
+
+// Apps opened from Finder get a minimal PATH, so codex/gh/git installed via nvm or Homebrew aren't found. Take the login shell's PATH.
+function adoptLoginShellPath(): void {
+  if (process.platform === 'win32' || !app.isPackaged) return
+  try {
+    const out = execFileSync(process.env.SHELL || '/bin/zsh', ['-ilc', 'echo "__PATH__$PATH"'], { encoding: 'utf8', timeout: 3000 })
+    const p = out.split('\n').find((l) => l.includes('__PATH__'))?.split('__PATH__')[1]
+    if (p) process.env.PATH = p
+  } catch { /* shortcut: keep the inherited PATH if the shell is slow or fails; use Settings > CLI paths */ }
+}
 
 let mainWindow: BrowserWindow | null = null
 let manager: SessionManager | undefined
@@ -30,7 +43,7 @@ function createWindow(): void {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
     }
@@ -41,9 +54,11 @@ function createWindow(): void {
   win.on('closed', () => (mainWindow = null))
 
   win.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    if (/^https?:\/\//i.test(details.url)) shell.openExternal(details.url)
     return { action: 'deny' }
   })
+  // The app never navigates; block it so a compromised page can't swap the UI.
+  win.webContents.on('will-navigate', (e) => e.preventDefault())
 
   // HMR for renderer base on electron-vite cli.
   // Load the remote URL for development or the local html file for production.
@@ -70,6 +85,7 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  adoptLoginShellPath()
   loadSettings(join(app.getPath('userData'), 'settings.json'))
   applyTheme()
   const send = (channel: string, ...args: unknown[]): void => mainWindow?.webContents.send(channel, ...args)
@@ -82,6 +98,23 @@ app.whenReady().then(() => {
     worktreesDir: join(app.getPath('userData'), 'worktrees'),
     accountsDir: join(app.getPath('userData'), 'accounts'),
     pickFolder: () => pickFolder(mainWindow),
+    saveText: async (name, text) => {
+      const opts = { defaultPath: name, filters: [{ name: 'Markdown', extensions: ['md'] }] }
+      const r = mainWindow ? await dialog.showSaveDialog(mainWindow, opts) : await dialog.showSaveDialog(opts)
+      if (r.canceled || !r.filePath) return null
+      await writeFile(r.filePath, text)
+      return r.filePath
+    },
+    confirmSetup: async (path, script) => {
+      const hash = createHash('sha256').update(script).digest('hex')
+      const trusted = getSettings().trustedSetups
+      if (trusted[path] === hash) return true
+      const opts = { type: 'warning' as const, message: "Run this project's setup script?", detail: script, buttons: ['Run', 'Cancel'], defaultId: 1, cancelId: 1 }
+      const r = mainWindow ? await dialog.showMessageBox(mainWindow, opts) : await dialog.showMessageBox(opts)
+      if (r.response !== 0) return false
+      setSettings({ trustedSetups: { [path]: hash } }) // merge() keeps the other entries
+      return true
+    },
     pty,
     emit: {
       event: (id, e) => send('evt:event', id, e),

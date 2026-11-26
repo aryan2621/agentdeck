@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 import { mkdir, rm } from 'node:fs/promises'
-import { basename, join, relative, resolve, isAbsolute } from 'node:path'
+import { basename, dirname, join, relative, resolve, isAbsolute, sep } from 'node:path'
 import type { Account, Db, Session } from './db'
 import * as git from './git'
 import * as history from './history'
+import { getSettings } from './settings'
+import { transcriptMarkdown } from './transcript'
 import { checkTool } from './tools'
 import { configEnv, copyTranscript, defaultConfigDir, loginCommand } from './accounts'
 import type { PtyManager } from './pty'
@@ -23,6 +26,10 @@ export interface SessionManagerDeps {
   emit: Emitter
   /** Electron-only: folder picker. Returns the chosen path or null. */
   pickFolder?: () => Promise<string | null>
+  /** Electron-only: ask before running a repo's agentdeck.json setup script. Absent (tests) = allowed. */
+  confirmSetup?: (projectPath: string, script: string) => Promise<boolean>
+  /** Electron-only: save dialog + write. Returns the saved path or null if cancelled. */
+  saveText?: (suggestedName: string, text: string) => Promise<string | null>
   /** Optional so tests don't spawn shells. */
   pty?: PtyManager
 }
@@ -46,6 +53,8 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
     this.d.db.addProject(p)
     return p
   }
+  /** Sessions mid-turn, not counting `except` (so a follow-up in a busy session isn't blocked by itself). */
+  private running(except: string): number { return this.d.db.listProjects().flatMap((p) => this.d.db.listSessions(p.id)).filter((s) => s.status === 'working' && s.id !== except).length }
   hasWorking(): boolean { return this.d.db.listProjects().some((p) => this.d.db.listSessions(p.id).some((s) => s.status === 'working')) }
   async listProjects(): Promise<ProjectInfo[]> { return this.d.db.listProjects() }
   async listSessions(projectId: string): Promise<SessionInfo[]> {
@@ -61,6 +70,8 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
     if (!project) throw new Error(`unknown project ${input.projectId}`)
     if (input.accountId) this.account(input.accountId, input.provider)
     const id = randomUUID()
+    const cfg = input.useWorktree ? await git.readAgentdeckConfig(project.path) : {}
+    if (cfg.setup && this.d.confirmSetup && !(await this.d.confirmSetup(project.path, cfg.setup))) throw new Error('Setup script not approved')
     let worktreePath: string | null = null
     let branch: string | null = null
     if (input.useWorktree) {
@@ -68,7 +79,7 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
       worktreePath = wt.path
       branch = wt.branch
       try {
-        const setup = await git.setupWorktree(project.path, wt.path, await git.readAgentdeckConfig(project.path))
+        const setup = await git.setupWorktree(project.path, wt.path, cfg)
         if (setup.exitCode !== 0) throw new Error(`agentdeck.json setup failed (exit ${setup.exitCode}): ${setup.output}`)
       } catch (e) {
         await git.removeWorktree(project.path, wt.path, wt.branch).catch(() => {}) // don't leave a half-set-up worktree behind
@@ -88,13 +99,15 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
 
   async sendMessage(sessionId: string, text: string, images?: ImageAttachment[]): Promise<void> {
     const row = this.row(sessionId)
+    const cap = getSettings().maxParallel
+    if (cap > 0 && this.running(sessionId) >= cap) throw new Error(`Parallel limit reached (${cap}). Wait for a running session to finish, or raise the limit in Settings.`)
     if (!this.active.has(sessionId)) await this.start(row) // lazy resume after app restart
     if (!this.titles.has(sessionId) && !this.d.db.listEvents(sessionId).some((e) => e.type === 'message' && e.role === 'user')) {
       this.titles.set(sessionId, truncate(text))
       this.d.emit.session(this.info(row))
     }
-    // shortcut: best-effort snapshot; a failure must not block the prompt. Upgrade to surfacing the error if rewinds go missing.
-    await git.createCheckpoint(this.cwd(row), sessionId, text).catch(() => {})
+    // shortcut: a failed snapshot is only logged (the event model has no notice type); add a UI notice if rewinds go missing.
+    await git.createCheckpoint(this.cwd(row), sessionId, text).catch((e) => console.error('checkpoint failed:', e))
     this.record(sessionId, { type: 'message', role: 'user', text, ...(images?.length ? { images } : {}) })
     await this.d.adapters[row.provider].send(sessionId, text, images)
   }
@@ -250,8 +263,15 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
   resolveFile(sessionId: string, relPath: string): string {
     const cwd = resolve(this.cwd(this.row(sessionId)))
     const full = resolve(cwd, relPath)
-    const rel = relative(cwd, full)
-    if (!rel || rel.startsWith('..') || isAbsolute(rel)) throw new Error('File is outside the session folder')
+    const outside = (root: string, p: string): boolean => {
+      const rel = relative(root, p)
+      return !rel || rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)
+    }
+    if (outside(cwd, full)) throw new Error('File is outside the session folder')
+    // Follow symlinks via the nearest existing ancestor (the file itself may be deleted).
+    const real = (p: string): string => { try { return realpathSync(p) } catch { const up = dirname(p); return up === p ? p : join(real(up), basename(p)) } }
+    const realCwd = real(cwd)
+    if (real(full) !== realCwd && outside(realCwd, real(full))) throw new Error('File is outside the session folder')
     return full
   }
   async revertFile(sessionId: string, relPath: string): Promise<void> {
@@ -261,7 +281,21 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
     const cwd = this.cwd(row)
     await git.revertFile(cwd, relative(resolve(cwd), full), full)
   }
+  async revertHunk(sessionId: string, relPath: string, index: number): Promise<void> {
+    const row = this.row(sessionId)
+    if (row.status === 'working') throw new Error('Stop the turn before reverting changes')
+    const full = this.resolveFile(sessionId, relPath)
+    const cwd = this.cwd(row)
+    await git.revertHunk(cwd, relative(resolve(cwd), full), index)
+  }
+  async exportSession(sessionId: string): Promise<string | null> {
+    if (!this.d.saveText) throw new Error('export unavailable')
+    const row = this.row(sessionId)
+    const title = this.info(row).title
+    return this.d.saveText(`${title.replace(/[^\w .-]+/g, '_')}.md`, transcriptMarkdown(title, this.d.db.listEvents(sessionId)))
+  }
   async sessionUsage(sessionId: string) { return this.d.db.getUsage(sessionId) }
+  async usageSummary() { return this.d.db.listUsage() }
 
   async termOpen(sessionId: string): Promise<string> {
     if (!this.d.pty) throw new Error('terminal unavailable')

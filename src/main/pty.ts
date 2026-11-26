@@ -13,9 +13,10 @@ export class PtyManager {
   open(sessionId: string, cwd: string, env: Record<string, string> = {}, initial?: string): string {
     const t = this.terms.get(sessionId)
     if (t) return t.backlog
-    const pty = spawn(process.platform === 'win32' ? process.env.ComSpec || 'powershell.exe' : process.env.SHELL || '/bin/zsh', process.platform === 'win32' ? [] : ['-l'], {
+    let pty: IPty
+    try { pty = spawn(process.platform === 'win32' ? process.env.ComSpec || 'powershell.exe' : process.env.SHELL || '/bin/zsh', process.platform === 'win32' ? [] : ['-l'], {
       name: 'xterm-256color', cols: 80, rows: 24, cwd, env: { ...(process.env as Record<string, string>), ...env },
-    })
+    }) } catch (e) { throw new Error(`Could not start a shell in ${cwd}: ${(e as Error).message}`) }
     const term: Term = { pty, backlog: '' }
     this.terms.set(sessionId, term)
     pty.onData((d) => {
