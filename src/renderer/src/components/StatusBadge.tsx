@@ -1,23 +1,21 @@
-import { AlertCircle, BellRing, CheckCircle2, Circle, Loader2 } from 'lucide-react'
+import { Check, Loader2, X } from 'lucide-react'
 import type { SessionStatus } from '../../../shared/types'
 import { Badge } from './ui/badge'
 
-const S: Record<SessionStatus, { label: string; tone: 'neutral' | 'primary' | 'ok' | 'warn' | 'danger'; icon: React.ElementType; cls?: string }> = {
-  idle: { label: 'Idle', tone: 'neutral', icon: Circle },
-  working: { label: 'Working', tone: 'primary', icon: Loader2, cls: 'animate-spin' },
-  'needs-you': { label: 'Needs you', tone: 'warn', icon: BellRing },
-  done: { label: 'Done', tone: 'ok', icon: CheckCircle2 },
-  error: { label: 'Error', tone: 'danger', icon: AlertCircle }
+const LABEL: Record<SessionStatus, string> = { idle: 'Idle', working: 'Working', 'needs-you': 'Needs you', done: 'Done', error: 'Error' }
+const TONE: Record<SessionStatus, 'neutral' | 'primary' | 'ok' | 'warn' | 'danger'> = { idle: 'neutral', working: 'primary', 'needs-you': 'warn', done: 'neutral', error: 'danger' }
+
+/** Shape + colour per state; never a checkbox-like circle. */
+export function StatusDot({ status }: { status: SessionStatus }): React.JSX.Element {
+  const label = LABEL[status]
+  const box = 'flex size-3.5 shrink-0 items-center justify-center'
+  if (status === 'needs-you') return <span className={box} role="img" aria-label={label}><span className="size-2 rounded-full bg-needs ring-2 ring-needs/30" /></span>
+  if (status === 'working') return <Loader2 className="size-3.5 shrink-0 animate-spin text-foreground" role="img" aria-label={label} />
+  if (status === 'done') return <Check className="size-3.5 shrink-0 text-faint" role="img" aria-label={label} />
+  if (status === 'error') return <X className="size-3.5 shrink-0 text-destructive" role="img" aria-label={label} />
+  return <span className={box} role="img" aria-label={label}><span className="h-px w-2 bg-faint" /></span>
 }
 
 export default function StatusBadge({ status }: { status: SessionStatus }): React.JSX.Element {
-  const { label, tone, icon: Icon, cls } = S[status]
-  return <Badge tone={tone}><Icon className={`size-3 ${cls ?? ''}`} aria-hidden="true" />{label}</Badge>
-}
-
-const DOT: Record<SessionStatus, string> = { idle: 'text-muted-foreground', working: 'text-foreground', 'needs-you': 'text-primary', done: 'text-ok', error: 'text-destructive' }
-
-export function StatusDot({ status }: { status: SessionStatus }): React.JSX.Element {
-  const { label, icon: Icon, cls } = S[status]
-  return <Icon className={`size-3.5 shrink-0 ${DOT[status]} ${cls ?? ''}`} role="img" aria-label={label} />
+  return <Badge tone={TONE[status]} className="gap-1.5"><StatusDot status={status} />{LABEL[status]}</Badge>
 }

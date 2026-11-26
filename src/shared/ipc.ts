@@ -4,8 +4,11 @@ import type { HistoryItem, McpServer } from '../main/history'
 import type { AgentEvent, ApprovalDecision, ImageAttachment, LimitWindow, PermissionMode, ProviderId, SessionStatus, Settings } from './types'
 
 export interface ProjectInfo { id: string; path: string; name: string }
+/** Picked look of a session's avatar: indexes into COLORS and SHAPES (Avatar.tsx). */
+export interface AvatarChoice { color: number; shape: number }
 export interface SessionInfo {
   id: string
+  avatar?: AvatarChoice
   projectId: string
   provider: ProviderId
   model?: string
@@ -18,6 +21,8 @@ export interface SessionInfo {
   createdAt: number
 }
 export interface NewSessionInput {
+  avatar?: AvatarChoice
+  title?: string
   projectId: string
   provider: ProviderId
   model?: string
@@ -30,8 +35,10 @@ export interface AccountInfo { id: string; provider: ProviderId; label: string }
 export interface ModelInfo { id: string; label: string }
 
 export interface AgentDeckApi {
-  /** Opens a folder picker; returns the project or null if cancelled or not a git repo (throws readable error). */
-  addProject(): Promise<ProjectInfo | null>
+  /** Opens the folder picker, or adds `path` directly (drag and drop). */
+  addProject(path?: string): Promise<ProjectInfo | null>
+  /** Filesystem path of a dropped File. */
+  pathForFile(f: File): string
   listProjects(): Promise<ProjectInfo[]>
   listSessions(projectId: string): Promise<SessionInfo[]>
   listModels(provider: ProviderId): Promise<ModelInfo[]>
@@ -48,7 +55,6 @@ export interface AgentDeckApi {
   /** 'branch' diffs against the project's checked-out branch; 'uncommitted' against HEAD. */
   sessionDiff(sessionId: string, scope: 'uncommitted' | 'branch'): Promise<DiffResult>
   commitSession(sessionId: string, message: string): Promise<void>
-  /** One per prompt sent (the files as they were before it), plus 'Before rewind' snapshots. Oldest first. */
   /** Messages across all sessions containing the text. */
   searchSessions(query: string): Promise<{ sessionId: string; text: string }[]>
   /** Sessions from ~/.claude and ~/.codex that ran in this project's folder. */
@@ -58,8 +64,11 @@ export interface AgentDeckApi {
   /** Read-only: MCP servers the provider CLIs have configured. */
   listMcp(projectId: string): Promise<McpServer[]>
   listFiles(sessionId: string): Promise<string[]>
+  /** One per prompt sent (the files as they were before it), plus 'Before rewind' snapshots. Oldest first. */
   listCheckpoints(sessionId: string): Promise<Checkpoint[]>
   /** Restores worktree files only; chat history and the agent's memory are unchanged. Refused while working. */
+  rewindPreview(sessionId: string, checkpointId: string): Promise<string[]>
+  checkTool(id: ProviderId | 'gh'): Promise<boolean>
   rewindSession(sessionId: string, checkpointId: string): Promise<void>
   pushSession(sessionId: string): Promise<string>
   /** Returns the PR URL. */
@@ -73,6 +82,15 @@ export interface AgentDeckApi {
   accountLogin(accountId: string): Promise<string>
   /** Resumes the session under another account (null = the CLI's default login). */
   moveSession(sessionId: string, accountId: string | null): Promise<SessionInfo>
+  /** Refused while any session uses the account. */
+  removeAccount(accountId: string): Promise<void>
+  /** Change model / mode of an idle session; takes effect on the next message. */
+  configureSession(sessionId: string, opts: { model?: string | null; permissionMode?: PermissionMode }): Promise<SessionInfo>
+  branchStatus(sessionId: string): Promise<{ dirty: boolean; ahead: number | null }>
+  /** Opens a file of the session's folder in the OS default app. */
+  openFile(sessionId: string, relPath: string): Promise<void>
+  /** Discards the file's uncommitted changes (restores from HEAD, or deletes a new file). Refused while working. */
+  revertFile(sessionId: string, relPath: string): Promise<void>
   sessionUsage(sessionId: string): Promise<{ inputTokens: number; outputTokens: number; costUsd: number }>
   /** Starts (or reattaches to) the session's shell in its worktree; resolves with output so far. */
   termOpen(sessionId: string): Promise<string>

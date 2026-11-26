@@ -1,11 +1,8 @@
 import { useState } from 'react'
-import { Check, CheckCheck, ShieldAlert, ShieldCheck, ShieldX, X } from 'lucide-react'
+import { ShieldCheck, ShieldQuestion, ShieldX } from 'lucide-react'
 import { actions } from '../store'
-import { Badge } from './ui/badge'
+import { Kbd } from './ui/kbd'
 import { Button } from './ui/button'
-import { Card } from './ui/card'
-import { Disclosure } from './ui/collapsible'
-import { Tip } from './ui/tooltip'
 
 interface Props { sessionId: string; id: string; kind: string; summary: string; detail?: unknown; allowed?: boolean }
 
@@ -17,40 +14,34 @@ export default function ApprovalCard({ sessionId, id, kind, summary, detail, all
       actions.fail
     )
   }
+  const text = detail === undefined ? '' : typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2)
+  if (decision) return (
+    <div className="flex items-center gap-2 py-0.5 pl-4 text-small text-muted-foreground" role="status">
+      {decision === 'Approved' ? <ShieldCheck className="size-3.5 text-ok" /> : <ShieldX className="size-3.5 text-destructive" />}
+      <span>{decision}</span><span className="min-w-0 truncate font-mono">{summary}</span>
+    </div>
+  )
   return (
-    // Y/N only fire while focus is inside the card, so typing in the composer is never hijacked.
-    <Card
-      className="flex flex-col gap-2 border-warn/40 p-3" role="group" aria-label={`Approval request: ${summary}`}
+    // Keys only fire while focus is inside the card, so typing in the composer is never hijacked.
+    <div
+      className="flex max-w-[640px] flex-col gap-3 rounded-lg border border-warn/50 bg-overlay p-4 outline-none" role="group" aria-label={`Approval request: ${summary}`} tabIndex={-1}
+      ref={(el) => { if (el && !/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName ?? '')) el.focus() }}
       onKeyDown={(e) => {
-        if (decision || e.metaKey || e.ctrlKey) return
+        if (e.metaKey || e.ctrlKey) return
         if (e.key === 'y') respond(true)
-        else if (e.key === 'n') respond(false)
+        else if (e.key === 'n' || e.key === 'Escape') respond(false)
+        else if (e.key === 'a') respond(true, true)
+        else if (e.key === 'Enter' && e.target === e.currentTarget) respond(true)
       }}
     >
-      <div className="flex items-center gap-2">
-        <ShieldAlert className="size-4 text-warn" />
-        <b className="font-medium">Approval needed</b>
-        <Badge tone="warn">{kind}</Badge>
+      <div className="flex items-center gap-2 text-small text-muted-foreground"><ShieldQuestion className="size-3.5 text-warn" />Needs your OK<span className="font-mono text-faint">{kind}</span></div>
+      <b className="text-body font-medium break-words">{summary}</b>
+      {text && <pre className="max-h-48 overflow-auto rounded-md bg-panel px-3 py-2 font-mono text-small whitespace-pre-wrap">{text}</pre>}
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={() => respond(true)}>Approve<Kbd>Y</Kbd></Button>
+        <Button variant="outline" onClick={() => respond(true, true)} title={`Stop asking for ${kind} in this session`}>Always allow<Kbd>A</Kbd></Button>
+        <Button variant="outline" onClick={() => respond(false)}>Deny<Kbd>N</Kbd></Button>
       </div>
-      <div className="font-mono text-xs break-words">{summary}</div>
-      {detail !== undefined && (
-        <Disclosure head={<span className="text-xs text-muted-foreground">Details</span>}>
-          <pre className="max-h-60 overflow-auto p-2.5 font-mono text-xs whitespace-pre-wrap">{typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2)}</pre>
-        </Disclosure>
-      )}
-      {decision ? (
-        <Badge tone={decision === 'Approved' ? 'ok' : 'danger'} className="self-start">
-          {decision === 'Approved' ? <ShieldCheck className="size-3" /> : <ShieldX className="size-3" />}{decision}
-        </Badge>
-      ) : (
-        <div className="flex gap-2">
-          <Button variant="default" autoFocus onClick={() => respond(true)}><Check />Approve <kbd className="font-mono text-[11px] opacity-70">Y</kbd></Button>
-          <Tip label="Stop asking for this kind of action in this session">
-            <Button onClick={() => respond(true, true)}><CheckCheck />Always allow</Button>
-          </Tip>
-          <Button variant="destructive" onClick={() => respond(false)}><X />Deny <kbd className="font-mono text-[11px] opacity-70">N</kbd></Button>
-        </div>
-      )}
-    </Card>
+    </div>
   )
 }

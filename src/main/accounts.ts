@@ -7,7 +7,7 @@ const CLI: Record<AccountProvider, { dir: string; login: string; env: string }> 
   claude: { dir: '.claude', login: 'claude /login', env: 'CLAUDE_CONFIG_DIR' },
   codex: { dir: '.codex', login: 'codex login', env: 'CODEX_HOME' },
 }
-/** Throws for providers without accounts (ACP agents) so they never inherit another CLI's behaviour. */
+/** Throws for providers without accounts so they never inherit another CLI's behaviour. */
 const cli = (p: ProviderId): (typeof CLI)[AccountProvider] => {
   if (!hasAccounts(p)) throw new Error(`${p} does not support accounts`)
   return CLI[p]

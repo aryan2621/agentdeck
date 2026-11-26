@@ -3,21 +3,33 @@ import * as D from '@radix-ui/react-dialog'
 import { Command } from 'cmdk'
 import { actions, useStore } from '../store'
 import { StatusDot } from './StatusBadge'
+import { Kbd } from './ui/kbd'
+import { keysOf, FOCUS_SEARCH, sessionCommand } from '../lib/shortcuts'
+import { Archive, BellRing, FolderPlus, PanelLeft, PanelRight, Pencil, RotateCcw, Search, Settings, SquarePen } from 'lucide-react'
 
-const item = 'flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 data-[selected=true]:bg-accent'
-const group = 'text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1 [&_[cmdk-group-heading]]:text-[11px]'
+const item = 'flex cursor-default items-center gap-2 rounded-lg px-2 h-8 text-body data-[selected=true]:bg-accent'
+const group = 'text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1 [&_[cmdk-group-heading]]:text-meta [&_[cmdk-group-heading]]:text-faint'
 
-export const OPEN_PALETTE = 'agentdeck:palette'
+const OPEN_PALETTE = 'agentdeck:palette'
 
 /** ⌘K palette plus the global shortcuts ⌘N (new session) and ⌘1–9 (switch session). */
 export default function Palette(): React.JSX.Element {
-  const { projects, sessions, selectedId } = useStore()
+  const { projects, sessions, selectedId, recents } = useStore()
   const [open, setOpen] = useState(false)
+  const all = projects.flatMap((p) => sessions[p.id] ?? [])
+  const current = all.find((s) => s.id === selectedId)
+  // next needs-you session after the current one, wrapping
+  const nextNeedsYou = (): void => {
+    const need = all.filter((s) => s.status === 'needs-you')
+    const next = need.find((s) => all.indexOf(s) > all.findIndex((x) => x.id === selectedId)) ?? need[0]
+    if (next) actions.select(next.id)
+  }
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (!e.metaKey || e.shiftKey || e.altKey) return
-      const all = projects.flatMap((p) => sessions[p.id] ?? [])
       if (e.key === 'k') setOpen((o) => !o)
+      else if (e.key === 'j') nextNeedsYou()
+      else if (e.key === 'f') window.dispatchEvent(new Event(FOCUS_SEARCH))
       else if (e.key === 'n') {
         const pid = all.find((s) => s.id === selectedId)?.projectId ?? projects[0]?.id
         if (!pid) return
@@ -31,31 +43,46 @@ export default function Palette(): React.JSX.Element {
     window.addEventListener(OPEN_PALETTE, show)
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener(OPEN_PALETTE, show) }
   }, [projects, sessions, selectedId])
+  const recent = recents.map((id) => all.find((s) => s.id === id)).filter((s): s is NonNullable<typeof s> => !!s && s.id !== selectedId).slice(0, 4)
+  const projectName = (id: string): string => projects.find((p) => p.id === id)?.name ?? ''
+  const row = (s: (typeof all)[number], k: string): React.JSX.Element => (
+    <Command.Item key={k + s.id} value={`${s.title} ${projectName(s.projectId)} ${s.id} ${k}`} onSelect={run(() => actions.select(s.id))} className={item}>
+      <StatusDot status={s.status} /><span className="min-w-0 flex-1 truncate text-foreground">{s.title}</span><span className="text-small text-faint">{projectName(s.projectId)}</span>
+    </Command.Item>
+  )
+  const act = (icon: React.ReactNode, label: string, fn: () => void, id?: string): React.JSX.Element => (
+    <Command.Item value={label} onSelect={run(fn)} className={item}>{icon}<span className="flex-1 text-foreground">{label}</span>{id && keysOf(id) && <Kbd>{keysOf(id)}</Kbd>}</Command.Item>
+  )
+  const ic = 'size-3.5 text-faint'
   const run = (fn: () => void) => () => { setOpen(false); fn() }
   return (
     <D.Root open={open} onOpenChange={setOpen}>
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-50 bg-black/50" />
-        <D.Content aria-describedby={undefined} className="fixed top-24 left-1/2 z-50 w-[min(32rem,90vw)] -translate-x-1/2 overflow-hidden rounded-md border border-border bg-panel">
+        <D.Overlay className="fixed inset-0 z-50 bg-scrim" />
+        <D.Content aria-describedby={undefined} className="fixed top-24 left-1/2 z-50 w-[min(640px,90vw)] -translate-x-1/2 overflow-hidden rounded-lg border border-border bg-overlay shadow-overlay">
           <D.Title className="sr-only">Command palette</D.Title>
           <Command>
-            <Command.Input autoFocus aria-label="Search sessions and actions" placeholder="Search sessions and actions" className="h-10 w-full border-b border-border bg-transparent px-3 text-[13px] outline-none placeholder:text-muted-foreground" />
-            <Command.List className="max-h-80 overflow-y-auto p-1">
+            <Command.Input autoFocus aria-label="Search sessions and actions" placeholder="Search sessions and actions" className="h-12 w-full border-b border-border bg-transparent px-4 text-prose outline-none placeholder:text-muted-foreground" />
+            <Command.List className="max-h-96 overflow-y-auto p-1">
               <Command.Empty className="px-2 py-3 text-muted-foreground">No results</Command.Empty>
-              {projects.some((p) => (sessions[p.id] ?? []).length > 0) && <Command.Group heading="Sessions" className={group}>
-                {projects.flatMap((p) => (sessions[p.id] ?? []).map((s) => (
-                  <Command.Item key={s.id} value={`${s.title} ${p.name} ${s.id}`} onSelect={run(() => actions.select(s.id))} className={item}>
-                    <StatusDot status={s.status} /><span className="min-w-0 flex-1 truncate text-foreground">{s.title}</span><span className="text-xs">{p.name}</span>
-                  </Command.Item>
-                )))}
+              {recent.length > 0 && <Command.Group heading="Recent" className={group}>{recent.map((x) => row(x, 'recent'))}</Command.Group>}
+              {current && <Command.Group heading="This session" className={group}>
+                {act(<PanelRight className={ic} aria-hidden />, 'Toggle changes panel', () => sessionCommand('panel'), 'panel')}
+                {act(<Pencil className={ic} aria-hidden />, 'Rename session', () => sessionCommand('rename'))}
+                {act(<RotateCcw className={ic} aria-hidden />, 'Rewind files to last checkpoint', () => sessionCommand('rewind'))}
+                {act(<Archive className={ic} aria-hidden />, 'Archive session', () => sessionCommand('archive'))}
               </Command.Group>}
+              {all.length > 0 && <Command.Group heading="Sessions" className={group}>{all.map((x) => row(x, 'all'))}</Command.Group>}
               <Command.Group heading="Actions" className={group}>
-                {projects.map((p) => <Command.Item key={p.id} value={`new session ${p.name}`} onSelect={run(() => actions.openNew(p.id))} className={item}><span className="text-foreground">New session in {p.name}</span></Command.Item>)}
-                <Command.Item onSelect={run(() => void actions.addProject())} className={item}><span className="text-foreground">Add project</span></Command.Item>
-                <Command.Item onSelect={run(actions.toggleGrid)} className={item}><span className="text-foreground">Toggle grid view</span></Command.Item>
-                <Command.Item onSelect={run(actions.openSettings)} className={item}><span className="text-foreground">Settings</span></Command.Item>
+                {projects.map((p) => <Command.Item key={p.id} value={`new session ${p.name}`} onSelect={run(() => actions.openNew(p.id))} className={item}><SquarePen className="size-3.5 text-faint" aria-hidden /><span className="flex-1 text-foreground">New session in {p.name}</span>{p.id === (projects.find((x) => (sessions[x.id] ?? []).some((q) => q.id === selectedId)) ?? projects[0])?.id && <Kbd>⌘N</Kbd>}</Command.Item>)}
+                {act(<FolderPlus className={ic} aria-hidden />, 'Add project', () => void actions.addProject())}
+                {act(<PanelLeft className={ic} aria-hidden />, 'Toggle sidebar', actions.toggleSidebar, 'sidebar')}
+                {act(<BellRing className={ic} aria-hidden />, 'Next session that needs you', nextNeedsYou, 'next')}
+                {act(<Search className={ic} aria-hidden />, 'Search sessions', () => window.dispatchEvent(new Event(FOCUS_SEARCH)), 'search')}
+                {act(<Settings className={ic} aria-hidden />, 'Settings', actions.openSettings)}
               </Command.Group>
             </Command.List>
+            <div className="flex items-center gap-3 border-t border-border px-4 py-2 text-meta text-faint"><span><Kbd>↵</Kbd> Open</span><span><Kbd>↑↓</Kbd> Move</span><span><Kbd>esc</Kbd> Close</span></div>
           </Command>
         </D.Content>
       </D.Portal>

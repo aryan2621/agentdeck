@@ -10,7 +10,7 @@ export interface AgentdeckConfig {
   copy?: string[]
   setup?: string
 }
-export interface ChangedFile {
+interface ChangedFile {
   path: string
   status: string
   additions: number
@@ -30,7 +30,8 @@ async function run(cwd: string, cmd: string, args: string[], env?: NodeJS.Proces
     const { stdout } = await execFileP(cmd, args, { cwd, maxBuffer: 64 * 1024 * 1024, env: env ? { ...process.env, ...env } : undefined })
     return stdout
   } catch (e) {
-    const err = e as { stderr?: string; message: string }
+    const err = e as { stderr?: string; message: string; code?: string }
+    if (err.code === 'ENOENT') throw new Error(cmd === 'gh' ? 'GitHub CLI (gh) not found. Install it from cli.github.com, then try again.' : `${cmd} not found. Install it and make sure it is on your PATH.`)
     throw new Error(`${cmd} ${args.join(' ')} failed: ${(err.stderr || err.message).trim()}`)
   }
 }
@@ -152,7 +153,16 @@ export async function setupWorktree(
   }
 }
 
-export async function diff(path: string, scope: 'uncommitted' | { base: string }): Promise<DiffResult> {
+// `git add -N` takes index.lock, so concurrent diffs (panel + sidebar stats) must run one at a time.
+// shortcut: one global queue, not per repo; fine for a handful of sessions.
+let diffQueue: Promise<unknown> = Promise.resolve()
+export function diff(path: string, scope: 'uncommitted' | { base: string }): Promise<DiffResult> {
+  const next = diffQueue.then(() => diffNow(path, scope))
+  diffQueue = next.catch(() => {})
+  return next
+}
+
+async function diffNow(path: string, scope: 'uncommitted' | { base: string }): Promise<DiffResult> {
   await requireCommits(path)
   if (scope === 'uncommitted') await git(path, 'add', '-N', '.') // intent-to-add so untracked files show; index-only, commitAll stages everything anyway
   const range =
@@ -189,6 +199,20 @@ export async function commitAll(path: string, message: string): Promise<void> {
 
 export async function push(path: string): Promise<string> {
   return git(path, 'push', '-u', 'origin', 'HEAD')
+}
+
+/** dirty = uncommitted files; ahead = commits not on the upstream (null = no upstream, never pushed). */
+export async function branchStatus(path: string): Promise<{ dirty: boolean; ahead: number | null }> {
+  const dirty = (await git(path, 'status', '--porcelain')).trim() !== ''
+  const ahead = await git(path, 'rev-list', '--count', '@{u}..HEAD').then((n) => Number(n.trim()), () => null)
+  return { dirty, ahead }
+}
+
+/** Discards one file's uncommitted changes: restores it from HEAD, or deletes it if HEAD doesn't have it. `full` must already be inside the repo. */
+export async function revertFile(cwd: string, rel: string, full: string): Promise<void> {
+  const inHead = await git(cwd, 'cat-file', '-e', `HEAD:${rel}`).then(() => true, () => false)
+  if (inHead) await git(cwd, 'checkout', 'HEAD', '--', rel)
+  else { await git(cwd, 'rm', '-r', '-f', '--cached', '--ignore-unmatch', '--', rel); await rm(full, { recursive: true, force: true }) }
 }
 
 export async function createPr(path: string, title: string, body: string): Promise<string> {
@@ -232,6 +256,17 @@ export async function listCheckpoints(cwd: string, sessionId: string): Promise<C
 }
 
 const lines = (s: string): string[] => s.split('\0').filter(Boolean)
+
+/** Files a rewind to checkpoint `id` would change (modified, deleted or removed), compared with the current worktree. */
+export async function rewindPreview(cwd: string, sessionId: string, id: string): Promise<string[]> {
+  if (!/^\d+$/.test(id)) throw new Error(`Invalid checkpoint: "${id}"`)
+  const ref = `${ckPrefix(sessionId)}${id}`
+  return withTempIndex(async (env) => {
+    await gitEnv(cwd, env, 'add', '-A')
+    const tree = (await gitEnv(cwd, env, 'write-tree')).trim()
+    return lines(await git(cwd, 'diff-tree', '-r', '-z', '--name-only', ref, tree))
+  })
+}
 
 /** Restores the worktree files to a checkpoint (files only: branch, index and chat are untouched). Snapshots the current state first so a rewind can be undone. */
 export async function restoreCheckpoint(cwd: string, sessionId: string, id: string): Promise<void> {

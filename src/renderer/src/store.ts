@@ -1,17 +1,19 @@
 import { useSyncExternalStore } from 'react'
 import { DEFAULT_SETTINGS, type ProviderId, type Settings } from '../../shared/types'
-import { forkPrompt } from './transcript'
+import { forkPrompt, lastText } from './transcript'
 import type { AccountInfo, ProjectInfo, SessionInfo } from '../../shared/ipc'
 
-export type View =
+type View =
   | { kind: 'session' }
   | { kind: 'new'; projectId: string } // new-session form
   | { kind: 'tools'; projectId: string } // import/MCP panel
-  | { kind: 'grid' } // overview of all sessions
-  | { kind: 'settings' }
+  | { kind: 'settings'; tab?: string }
   | { kind: 'login'; key: string } // terminal key of an account login in progress
 
-export interface Toast { id: number; kind: 'error' | 'ok'; text: string }
+interface Toast { id: number; kind: 'error' | 'ok'; text: string; action?: { label: string; run: () => void } }
+
+const load = <T>(key: string, fallback: T): T => { try { return JSON.parse(localStorage.getItem(key) ?? '') as T } catch { return fallback } }
+const save = (key: string, v: unknown): void => localStorage.setItem(key, JSON.stringify(v))
 
 interface State {
   projects: ProjectInfo[]
@@ -23,9 +25,14 @@ interface State {
   queues: Record<string, string[]> // messages waiting for the running turn to end, per session
   settings: Settings
   forkText: string // prefilled first message of the new-session form (fork/handoff)
+  unread: Record<string, true> // sessions with a new agent message since you last opened them
+  previews: Record<string, string> // last message of each session, one line, for the sidebar
+  sidebarCollapsed: boolean
+  recents: string[] // last selected sessions, newest first
+  seen: Record<string, number> // when you last left each session (marks what is new on return)
 }
 
-let state: State = { projects: [], sessions: {}, selectedId: null, view: { kind: 'session' }, toasts: [], accounts: [], settings: DEFAULT_SETTINGS, forkText: '', queues: {} }
+let state: State = { projects: [], sessions: {}, selectedId: null, view: { kind: 'session' }, toasts: [], accounts: [], settings: DEFAULT_SETTINGS, forkText: '', queues: {}, unread: {}, previews: {}, sidebarCollapsed: localStorage.getItem('sidebar-collapsed') === '1', recents: load('recents', []), seen: load('seen', {}) }
 const listeners = new Set<() => void>()
 const set = (p: Partial<State>): void => {
   state = { ...state, ...p }
@@ -33,12 +40,16 @@ const set = (p: Partial<State>): void => {
 }
 let toastId = 0
 const dismiss = (id: number): void => set({ toasts: state.toasts.filter((t) => t.id !== id) })
-const toast = (kind: Toast['kind'], text: string): void => {
+const toast = (kind: Toast['kind'], text: string, action?: Toast['action']): void => {
   const id = ++toastId
-  set({ toasts: [...state.toasts.slice(-3), { id, kind, text }] })
+  set({ toasts: [...state.toasts.slice(-3), { id, kind, text, action }] })
   if (kind === 'ok') setTimeout(() => dismiss(id), 4000) // errors stay until dismissed
 }
 const fail = (e: unknown): void => toast('error', e instanceof Error ? e.message : String(e))
+
+window.api?.onEvent((sid, e) => { // api is absent in unit tests
+  if (e.type === 'message' && !e.partial) set({ previews: { ...state.previews, [sid]: lastText([e]) }, unread: sid === state.selectedId || e.role !== 'assistant' ? state.unread : { ...state.unread, [sid]: true } })
+})
 
 export const useStore = (): State =>
   useSyncExternalStore(
@@ -53,13 +64,15 @@ export const actions = {
       const lists = await Promise.all(projects.map((p) => window.api.listSessions(p.id)))
       set({ accounts: await window.api.listAccounts(), settings: await window.api.getSettings() })
       set({ projects, sessions: Object.fromEntries(projects.map((p, i) => [p.id, lists[i]])) })
+      // shortcut: one getEvents per session at startup; add a lastMessage field to listSessions if this gets slow.
+      lists.flat().forEach((s) => window.api.getEvents(s.id).then((ev) => set({ previews: { ...state.previews, [s.id]: lastText(ev) } }), () => {}))
     } catch (e) {
       fail(e)
     }
   },
-  async addProject(): Promise<void> {
+  async addProject(path?: string): Promise<void> {
     try {
-      const p = await window.api.addProject()
+      const p = await window.api.addProject(path)
       if (p && !state.projects.some((x) => x.id === p.id))
         set({ projects: [...state.projects, p], sessions: { ...state.sessions, [p.id]: [] } })
     } catch (e) {
@@ -88,26 +101,40 @@ export const actions = {
       fail(e)
     }
   },
-  closeLogin: (): void => set({ view: { kind: 'settings' } }),
-  select: (selectedId: string): void => set({ selectedId, view: { kind: 'session' } }),
-  openSettings: (): void => set({ view: { kind: 'settings' } }),
+  async removeAccount(id: string): Promise<void> {
+    try { await window.api.removeAccount(id); set({ accounts: state.accounts.filter((a) => a.id !== id) }) } catch (e) { fail(e) }
+  },
+  closeLogin: (): void => set({ view: { kind: 'settings', tab: 'Accounts' } }),
+  select(selectedId: string): void {
+    const prev = state.selectedId
+    const seen = prev && prev !== selectedId ? { ...state.seen, [prev]: Date.now() } : state.seen
+    const recents = [selectedId, ...state.recents.filter((r) => r !== selectedId)].slice(0, 5)
+    save('seen', seen); save('recents', recents)
+    set({ selectedId, seen, recents, view: { kind: 'session' }, unread: Object.fromEntries(Object.entries(state.unread).filter(([k]) => k !== selectedId)) })
+  },
+  toggleSidebar(): void {
+    localStorage.setItem('sidebar-collapsed', state.sidebarCollapsed ? '0' : '1')
+    set({ sidebarCollapsed: !state.sidebarCollapsed })
+  },
+  openSettings: (tab?: string): void => set({ view: { kind: 'settings', tab } }),
+  closeSettings: (): void => set({ view: { kind: 'session' } }),
   async saveSettings(patch: Partial<Settings>): Promise<void> {
     try { set({ settings: await window.api.setSettings(patch) }) } catch (e) { fail(e) }
   },
   openTools: (projectId: string): void => set({ view: { kind: 'tools', projectId } }),
-  openNew: (projectId: string): void => set({ view: { kind: 'new', projectId }, forkText: '' }),
+  openNew: (projectId: string, text = ''): void => set({ view: { kind: 'new', projectId }, forkText: text }),
   closeNew: (): void => set({ view: { kind: 'session' } }),
-  toggleGrid: (): void => set({ view: { kind: state.view.kind === 'grid' ? 'session' : 'grid' } as View }),
   /** Opens the new-session form in the same project with this session's chat as the first message. */
-  async fork(s: SessionInfo): Promise<void> {
+  async fork(s: SessionInfo, upTo?: number): Promise<void> {
     try {
-      set({ forkText: forkPrompt(await window.api.getEvents(s.id), s.title), view: { kind: 'new', projectId: s.projectId } })
+      const ev = await window.api.getEvents(s.id)
+      set({ forkText: forkPrompt(upTo ? ev.filter((e) => !e.ts || e.ts <= upTo) : ev, s.title), view: { kind: 'new', projectId: s.projectId } })
     } catch (e) {
       fail(e)
     }
   },
   dismiss,
-  ok: (text: string): void => toast('ok', text),
+  ok: (text: string, action?: Toast['action']): void => toast('ok', text, action),
   rename: (id: string, title: string): Promise<void> => window.api.renameSession(id, title).then(actions.upsertSession, fail),
   /** Archives (keeps the worktree) and moves selection to another session. */
   async archive(s: SessionInfo): Promise<void> {
@@ -119,6 +146,10 @@ export const actions = {
   },
   fail
 }
+
+/** The project the user is working in: the one being tooled/created in, else the selected session's. */
+export const currentProjectId = (s: State): string | undefined =>
+  s.view.kind === 'tools' || s.view.kind === 'new' ? s.view.projectId : findSession(s, s.selectedId)?.projectId
 
 export const findSession = (s: State, id: string | null): SessionInfo | undefined =>
   Object.values(s.sessions).flat().find((x) => x.id === id)

@@ -7,7 +7,7 @@ import { openDb, type Session } from './db'
 
 const session: Session = {
   id: 's1', projectId: 'p1', provider: 'claude', accountId: 'a1', model: 'opus', permissionMode: 'supervised',
-  worktreePath: '/wt', branch: 'feat', status: 'idle', resumeToken: null, createdAt: 1, title: null,
+  worktreePath: '/wt', branch: 'feat', status: 'idle', resumeToken: null, createdAt: 1, title: null, avatar: null,
 }
 
 describe('db', () => {
@@ -47,7 +47,7 @@ describe('db', () => {
     ] as const
     evs.forEach((e) => db.appendEvent('s1', e))
     db.appendEvent('other', { type: 'status', status: 'idle' })
-    expect(db.listEvents('s1')).toEqual(evs)
+    expect(db.listEvents('s1')).toEqual(evs.map((e) => ({ ...e, ts: expect.any(Number) })))
   })
 
   it('migrates a v1 database (no title column) without losing sessions', () => {
@@ -59,8 +59,8 @@ describe('db', () => {
       PRAGMA user_version = 1;`)
     old.close()
     const db = openDb(path)
-    db.updateSession('s1', { title: 'renamed' })
-    expect(db.listSessions('p1')[0]).toMatchObject({ id: 's1', title: 'renamed' })
+    db.updateSession('s1', { title: 'renamed', avatar: '{"color":2,"shape":3}' })
+    expect(db.listSessions('p1')[0]).toMatchObject({ id: 's1', title: 'renamed', avatar: '{"color":2,"shape":3}' })
     db.close()
     openDb(path).close() // reopening at the current version must not re-run the migration
   })

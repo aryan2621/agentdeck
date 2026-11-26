@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Check, Copy } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { createHighlighterCore, type HighlighterCore, type ThemedToken } from 'shiki/core'
@@ -37,7 +38,7 @@ export function useTokens(code: string, path: string): ThemedToken[][] | null {
 }
 
 /** Highlighted block; shows plain text until shiki is ready or if the language is unknown. Colours follow the OS theme via CSS vars (app.css). */
-export function CodeBlock({ code, lang }: { code: string; lang?: string }): React.JSX.Element {
+function CodeBlock({ code, lang }: { code: string; lang?: string }): React.JSX.Element {
   const [html, setHtml] = useState('')
   useEffect(() => {
     let live = true
@@ -46,16 +47,30 @@ export function CodeBlock({ code, lang }: { code: string; lang?: string }): Reac
     }, () => {})
     return () => { live = false }
   }, [code, lang])
-  return html ? (
-    <div className="shiki-host overflow-x-auto rounded-md border border-border bg-card text-xs [&_pre]:p-2.5 [&_pre]:font-mono" dangerouslySetInnerHTML={{ __html: html }} />
-  ) : (
-    <pre className="overflow-x-auto rounded-md border border-border bg-card p-2.5 font-mono text-xs">{code}</pre>
+  const [copied, setCopied] = useState(false)
+  const copy = (): void => {
+    void navigator.clipboard.writeText(code).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
+  }
+  return (
+    <div className="overflow-hidden rounded-md border border-border bg-background">
+      <div className="flex h-7 items-center justify-between border-b border-border px-3 text-meta text-muted-foreground">
+        <span className="font-mono">{lang ?? 'text'}</span>
+        <button type="button" onClick={copy} className="inline-flex items-center gap-1 rounded-sm px-1 transition-colors duration-100 hover:text-foreground">
+          {copied ? <Check className="size-3" /> : <Copy className="size-3" />}{copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      {html ? (
+        <div className="shiki-host overflow-x-auto text-small [&_pre]:p-3 [&_pre]:font-mono" dangerouslySetInnerHTML={{ __html: html }} />
+      ) : (
+        <pre className="overflow-x-auto p-3 font-mono text-small">{code}</pre>
+      )}
+    </div>
   )
 }
 
 export default function Markdown({ text }: { text: string }): React.JSX.Element {
   return (
-    <div className="flex flex-col gap-2 leading-relaxed break-words [&_a]:text-primary [&_a]:underline [&_li]:ml-4 [&_ol]:list-decimal [&_ul]:list-disc [&_table]:text-xs [&_td]:border [&_td]:border-border [&_td]:px-2 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-semibold">
+    <div className="flex flex-col gap-3 text-prose break-words [&_a]:text-link [&_li]:ml-4 [&_ol]:list-decimal [&_ul]:list-disc [&_table]:text-small [&_td]:border [&_td]:border-border [&_td]:px-2 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_h1]:text-title [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-semibold">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -63,7 +78,7 @@ export default function Markdown({ text }: { text: string }): React.JSX.Element 
           code: ({ className, children }) => {
             const lang = /language-(\w+)/.exec(className ?? '')?.[1]
             const code = String(children)
-            return lang || code.includes('\n') ? <CodeBlock code={code.replace(/\n$/, '')} lang={lang} /> : <code className="rounded-sm bg-muted px-1 font-mono text-xs">{children}</code>
+            return lang || code.includes('\n') ? <CodeBlock code={code.replace(/\n$/, '')} lang={lang} /> : <code className="rounded-sm bg-muted px-1 font-mono text-small">{children}</code>
           }
         }}
       >

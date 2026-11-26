@@ -1,9 +1,15 @@
-import { AlertCircle, ChevronRight } from 'lucide-react'
+import { AlertCircle, ChevronRight, Copy, FileText, GitFork, Globe, GitBranch, Pencil, RotateCw, Search, Terminal, Wrench, type LucideIcon } from 'lucide-react'
+import type { SessionInfo } from '../../../shared/ipc'
+import { useChanges } from '../lib/useChanges'
+import { Button } from './ui/button'
+import { Tip } from './ui/tooltip'
 import type { ChatEvent, Step } from '../chatItems'
 import { cn } from '../lib/utils'
 import * as C from '@radix-ui/react-collapsible'
 import Markdown from './Markdown'
+import Mentions from './Mentions'
 import { Diff, Stat, stats } from './Diff'
+import { stamp } from '../lib/ago'
 
 const text = (v: unknown): string => (typeof v === 'string' ? v : JSON.stringify(v, null, 2) ?? '')
 const base = (p: string): string => p.split('/').pop() ?? p
@@ -25,16 +31,19 @@ function describe(name: string, input: unknown): { verb: string; target: string;
   }
 }
 
+const ICONS: Record<string, LucideIcon> = { Bash: Terminal, Read: FileText, Write: Pencil, Edit: Pencil, MultiEdit: Pencil, Grep: Search, Glob: Search, WebFetch: Globe }
+
 const Well = ({ children, className }: { children: React.ReactNode; className?: string }): React.JSX.Element => (
-  <pre className={cn('max-h-72 overflow-auto rounded-md bg-chrome px-3 py-2 font-mono text-xs leading-5 whitespace-pre-wrap', className)}>{children}</pre>
+  <pre className={cn('max-h-72 overflow-auto rounded-lg bg-panel px-3 py-2 font-mono text-small leading-5 whitespace-pre-wrap', className)}>{children}</pre>
 )
 
 /** A transcript line: quiet by default, expandable when there is something to show. */
-function Line({ verb, target, mono = true, right, children }: { verb: string; target: string; mono?: boolean; right?: React.ReactNode; children?: React.ReactNode }): React.JSX.Element {
+function Line({ icon: Icon, verb, target, mono = true, right, children }: { icon?: LucideIcon; verb: string; target: string; mono?: boolean; right?: React.ReactNode; children?: React.ReactNode }): React.JSX.Element {
   const head = (
     <>
-      <span className="shrink-0 text-muted-foreground">{verb}</span>
-      <span className={cn('min-w-0 truncate', mono && 'font-mono text-xs')}>{target}</span>
+      {Icon && <Icon className="size-3 shrink-0 text-faint" aria-hidden />}
+      <span className="shrink-0 font-mono text-small text-faint">{verb}</span>
+      <span className={cn('min-w-0 truncate', mono && 'font-mono text-small text-muted-foreground')}>{target}</span>
       {right}
     </>
   )
@@ -53,38 +62,70 @@ function Line({ verb, target, mono = true, right, children }: { verb: string; ta
 export function Steps({ steps }: { steps: Step[] }): React.JSX.Element {
   const files = new Set(steps.filter((s) => s.type === 'file_change').map((s) => (s as { path: string }).path)).size
   return (
-    <C.Root className="group">
-      <C.Trigger className="flex items-center gap-1.5 rounded-sm py-0.5 text-left text-muted-foreground transition-colors duration-100 hover:text-foreground">
+    <C.Root className="group flex flex-col items-center">
+      <C.Trigger className="flex items-center gap-1 rounded-md px-3 py-1 text-small text-faint transition-colors duration-100 hover:text-foreground">
+        Ran {steps.length} {steps.length === 1 ? 'step' : 'steps'}{files > 0 && <> · {files} {files === 1 ? 'file' : 'files'} changed</>}
         <ChevronRight className="size-3 shrink-0 transition-transform duration-100 group-data-[state=open]:rotate-90" />
-        {steps.length} steps{files > 0 && <>, {files} {files === 1 ? 'file' : 'files'} changed</>}
       </C.Trigger>
-      <C.Content className="ml-1.5 flex flex-col border-l border-border pl-3">
+      <C.Content className="mt-1 flex w-full flex-col border-l border-border pl-3">
         {steps.map((s, i) => <EventRow key={i} e={s} />)}
       </C.Content>
     </C.Root>
   )
 }
 
-export default function EventRow({ e }: { e: ChatEvent }): React.JSX.Element | null {
+/** Summary of the latest finished turn: branch, change size, and the two next steps. */
+export function TurnResult({ session, onView }: { session: SessionInfo; onView: () => void }): React.JSX.Element | null {
+  const c = useChanges(session)
+  if (c.files === 0) return null
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-muted px-4 py-3 text-small text-muted-foreground" role="group" aria-label="Turn result">
+      <span className="inline-flex items-center gap-1.5 font-medium text-ok"><span className="size-1.5 rounded-full bg-ok" />Done</span>
+      <span>{c.files} {c.files === 1 ? 'file' : 'files'}</span><Stat add={c.add} del={c.del} />
+      {session.branch && <span className="inline-flex min-w-0 items-center gap-1 truncate"><GitBranch className="size-3.5 shrink-0" />{session.branch}</span>}
+      <div className="ml-auto flex gap-2">
+        <Button variant="outline" size="sm" onClick={onView}>View changes</Button>
+        {/* Uncommitted files exist whenever this card shows, and createPr does not commit. */}
+        <Tip label="Commit your changes first (View changes)"><span tabIndex={0}><Button size="sm" disabled>Create PR ↗</Button></span></Tip>
+      </div>
+    </div>
+  )
+}
+
+/** Message wrapper: a quiet timestamp and Copy appear on hover or keyboard focus. */
+function Hover({ text, ts, right, onFork, children }: { text: string; ts?: number; right?: boolean; onFork?: (ts: number) => void; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <div className={cn('group/msg flex flex-col gap-0.5', right ? 'items-end' : 'items-start')}>
+      {children}
+      <div className="flex h-5 items-center gap-2 text-meta text-faint opacity-0 transition-opacity duration-100 group-focus-within/msg:opacity-100 group-hover/msg:opacity-100">
+        {ts && <time dateTime={new Date(ts).toISOString()}>{stamp(ts)}</time>}
+        <button type="button" aria-label="Copy message" className="inline-flex items-center gap-1 rounded-sm hover:text-foreground" onClick={() => void navigator.clipboard.writeText(text)}><Copy className="size-3" />Copy</button>
+        {ts && onFork && <button type="button" aria-label="Fork from here" className="inline-flex items-center gap-1 rounded-sm hover:text-foreground" onClick={() => onFork(ts)}><GitFork className="size-3" />Fork from here</button>}
+      </div>
+    </div>
+  )
+}
+
+export default function EventRow({ e, onRetry, onFork }: { e: ChatEvent; onRetry?: () => void; onFork?: (ts: number) => void }): React.JSX.Element | null {
   switch (e.type) {
     case 'message':
       return e.role === 'user' ? (
-        <div className="flex max-w-[80%] flex-col gap-2 self-end rounded-md bg-panel px-3 py-2 break-words whitespace-pre-wrap">
+        <Hover text={e.text} ts={e.ts} right onFork={onFork}><div className="mt-2 flex max-w-[75%] flex-col gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-prose text-primary-foreground break-words whitespace-pre-wrap">
           {e.images?.length ? (
             <div className="flex flex-wrap gap-2">
               {e.images.map((im, i) => <img key={i} src={`data:${im.mimeType};base64,${im.data}`} alt="Attached" className="max-h-40 max-w-full rounded-sm" />)}
             </div>
           ) : null}
-          {e.text}
-        </div>
+          <div><Mentions text={e.text} className="rounded-sm bg-white/20 text-inherit" /></div>
+        </div></Hover>
       ) : (
-        <Markdown text={e.text} />
+        <Hover text={e.text} ts={e.ts} onFork={onFork}><div className="max-w-[90%] rounded-lg bg-muted px-4 py-3 text-body"><Markdown text={e.text} /></div></Hover>
       )
     case 'tool_call': {
       const d = describe(e.name, e.input)
       const out = e.output?.trim()
       return (
-        <Line verb={d.verb} target={d.target} mono={d.mono}>
+        <Line icon={ICONS[e.name] ?? Wrench} verb={d.verb} target={d.target} mono={d.mono}>
           {out ? <Well className="text-muted-foreground">{out}</Well> : undefined}
         </Line>
       )
@@ -92,15 +133,17 @@ export default function EventRow({ e }: { e: ChatEvent }): React.JSX.Element | n
     case 'file_change': {
       const s = e.diff ? stats(e.diff) : { add: 0, del: 0 }
       return (
-        <Line verb="Edited" target={base(e.path)} right={<Stat add={s.add} del={s.del} />}>
-          {e.diff ? <div className="overflow-hidden rounded-md bg-chrome"><Diff diff={e.diff} /></div> : undefined}
+        <Line icon={Pencil} verb="Edited" target={base(e.path)} right={<Stat add={s.add} del={s.del} />}>
+          {e.diff ? <div className="overflow-hidden rounded-md bg-panel"><Diff diff={e.diff} /></div> : undefined}
         </Line>
       )
     }
     case 'status':
       return e.status === 'error' ? (
-        <div className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-destructive" role="alert">
-          <AlertCircle className="mt-0.5 size-3.5 shrink-0" />Error: {e.error ?? 'unknown'}
+        <div className="flex items-start gap-2 rounded-lg bg-destructive/10 px-4 py-3 text-destructive" role="alert">
+          <AlertCircle className="mt-0.5 size-3.5 shrink-0" /><span className="min-w-0 flex-1 break-words">Error: {e.error ?? 'unknown'}</span>
+          <Tip label="Copy error"><Button variant="ghost" size="icon" className="shrink-0" aria-label="Copy error" onClick={() => void navigator.clipboard.writeText(e.error ?? '')}><Copy /></Button></Tip>
+          {onRetry && <Tip label="Retry"><Button variant="ghost" size="icon" className="shrink-0" aria-label="Retry" onClick={onRetry}><RotateCw /></Button></Tip>}
         </div>
       ) : null
     default:

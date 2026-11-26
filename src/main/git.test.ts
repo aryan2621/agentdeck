@@ -4,8 +4,8 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  addWorktree, commitAll, createCheckpoint, listCheckpoints, listFiles, restoreCheckpoint, currentBranch, diff, isGitRepo, readAgentdeckConfig,
-  removeWorktree, setupWorktree
+  addWorktree, branchStatus, commitAll, createCheckpoint, createPr, listCheckpoints, rewindPreview, listFiles, restoreCheckpoint, currentBranch, diff, isGitRepo, readAgentdeckConfig,
+  removeWorktree, revertFile, setupWorktree
 } from './git'
 
 let tmp: string
@@ -126,6 +126,22 @@ describe('git service', () => {
     expect((await listCheckpoints(repo, 's1')).map((c) => c.label)).toContain('Before rewind')
   })
 
+  it('rewindPreview lists the files a rewind would change', async () => {
+    initialCommit()
+    await createCheckpoint(repo, 's1', 'p')
+    writeFileSync(join(repo, 'a.txt'), 'changed\n')
+    writeFileSync(join(repo, 'extra.txt'), 'x\n')
+    const [ck] = await listCheckpoints(repo, 's1')
+    expect((await rewindPreview(repo, 's1', ck.id)).sort()).toEqual(['a.txt', 'extra.txt'])
+  })
+
+  it('a missing gh binary gives an install hint', async () => {
+    initialCommit()
+    const path = process.env.PATH
+    process.env.PATH = ''
+    try { await expect(createPr(repo, 't', 'b')).rejects.toThrow(/GitHub CLI \(gh\) not found/) } finally { process.env.PATH = path }
+  })
+
   it('listFiles returns tracked and untracked files but not ignored ones', async () => {
     initialCommit()
     writeFileSync(join(repo, '.gitignore'), 'skip.txt\n')
@@ -134,5 +150,37 @@ describe('git service', () => {
     const f = await listFiles(repo)
     expect(f).toEqual(expect.arrayContaining(['a.txt', 'new.txt']))
     expect(f).not.toContain('skip.txt')
+  })
+})
+
+describe('branchStatus', () => {
+  it('reports dirty and ahead (null without an upstream)', async () => {
+    initialCommit()
+    expect(await branchStatus(repo)).toEqual({ dirty: false, ahead: null })
+    const remote = join(tmp, 'remote.git')
+    g(tmp, 'init', '--bare', '-b', 'main', remote)
+    g(repo, 'remote', 'add', 'origin', remote)
+    g(repo, 'push', '-u', 'origin', 'HEAD')
+    expect(await branchStatus(repo)).toEqual({ dirty: false, ahead: 0 })
+    writeFileSync(join(repo, 'b.txt'), 'x')
+    expect(await branchStatus(repo)).toEqual({ dirty: true, ahead: 0 })
+    await commitAll(repo, 'two')
+    expect(await branchStatus(repo)).toEqual({ dirty: false, ahead: 1 })
+  })
+})
+
+describe('revertFile', () => {
+  it('restores a modified file and deletes a new one', async () => {
+    initialCommit()
+    const first = listFiles(repo).then((f) => f[0])
+    const name = await first
+    writeFileSync(join(repo, name), 'changed')
+    await revertFile(repo, name, join(repo, name))
+    expect(g(repo, 'status', '--porcelain')).toBe('')
+    writeFileSync(join(repo, 'new.txt'), 'x')
+    g(repo, 'add', 'new.txt')
+    await revertFile(repo, 'new.txt', join(repo, 'new.txt'))
+    expect(existsSync(join(repo, 'new.txt'))).toBe(false)
+    expect(g(repo, 'status', '--porcelain')).toBe('')
   })
 })

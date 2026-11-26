@@ -6,9 +6,13 @@ A macOS app for running several AI coding agents (Claude Code and Codex) in para
 - Projects and sessions: add a local git repo, start chat sessions, resume after restart.
 - Worktree per session, plus `agentdeck.json` setup scripts.
 - Terminal tab in the session's worktree.
-- Approve or deny edits and commands; Supervised, Auto-edit and Full access modes.
-- Changes tab: diff, commit, push and `gh pr create`.
-- Status badges, dock badge and notifications.
+- Approve or deny edits and commands; Ask before edits, Auto-edit, Full access and Plan only modes. With a request focused, `Y` approves and `N` denies.
+- Changes panel: per-file diff grouped by folder, revert a file, then commit, push and open a PR (`gh pr create`) from one form.
+- Sidebar grouped by project, filterable by Needs you / Running, with transcript search (`⌘F`). Drag its edge to resize (240–400px) or collapse it to a rail (`⌘B`).
+- `⌘K` command palette, `⌘N` new session, `⌘J` next session that needs you. Full list in Settings, Keyboard shortcuts.
+- Settings: defaults, accounts, notifications and light/dark/system theme.
+- Fork, rename, archive and rewind files to a checkpoint.
+- Status dots, dock badge and notifications.
 - Multiple Claude/Codex logins, moving a session between accounts, usage and plan limits.
 
 ## Requirements
@@ -19,7 +23,8 @@ macOS, Node 24, pnpm, and the `claude` and `codex` CLIs installed and logged in.
 pnpm install
 pnpm dev          # run the app
 pnpm typecheck
-npx vitest run src
+npx vitest run    # tests
+npx knip          # unused files and exports
 pnpm build:mac    # unsigned .dmg in dist/
 ```
 

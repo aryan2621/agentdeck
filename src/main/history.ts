@@ -14,7 +14,7 @@ const real = (t: string): boolean => !!t.trim() && !t.trimStart().startsWith('<'
 /** Claude Code stores a project's transcripts in a folder named after its path with non-alphanumerics as '-'. */
 const claudeDir = (home: string, projectPath: string): string => join(home, '.claude', 'projects', projectPath.replace(/[^a-zA-Z0-9]/g, '-'))
 
-export function parseClaude(text: string): AgentEvent[] {
+function parseClaude(text: string): AgentEvent[] {
   return lines(text).flatMap((m): AgentEvent[] => {
     if (m.isSidechain || m.isMeta || !m.message) return []
     const c = m.message.content
@@ -27,7 +27,7 @@ export function parseClaude(text: string): AgentEvent[] {
 
 // shortcut: Codex rollout format is from memory of ~/.codex/sessions/**/rollout-*.jsonl and unverified live; newer Codex
 // builds keep threads in state_*.sqlite instead, which this does not read. Verify at the live test.
-export function parseCodex(text: string): { cwd?: string; id?: string; events: AgentEvent[] } {
+function parseCodex(text: string): { cwd?: string; id?: string; events: AgentEvent[] } {
   let cwd: string | undefined, id: string | undefined
   const events = lines(text).flatMap((m): AgentEvent[] => {
     if (m.type === 'session_meta') { cwd = m.payload?.cwd; id = m.payload?.id; return [] }

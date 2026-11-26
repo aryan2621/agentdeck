@@ -1,15 +1,16 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { mkdir, rm } from 'node:fs/promises'
+import { basename, join, relative, resolve, isAbsolute } from 'node:path'
 import type { Account, Db, Session } from './db'
 import * as git from './git'
 import * as history from './history'
+import { checkTool } from './tools'
 import { configEnv, copyTranscript, defaultConfigDir, loginCommand } from './accounts'
 import type { PtyManager } from './pty'
-import type { AccountInfo, AgentDeckApi, ModelInfo, NewSessionInput, ProjectInfo, SessionInfo } from '../shared/ipc'
+import type { AccountInfo, AvatarChoice, AgentDeckApi, ModelInfo, NewSessionInput, ProjectInfo, SessionInfo } from '../shared/ipc'
 import type { AgentEvent, ApprovalDecision, ImageAttachment, LimitWindow, PermissionMode, ProviderAdapter, ProviderId, SessionStatus } from '../shared/types'
 
-export interface Emitter {
+interface Emitter {
   event(sessionId: string, e: AgentEvent): void
   session(s: SessionInfo): void
 }
@@ -29,14 +30,14 @@ export interface SessionManagerDeps {
 const TITLE_MAX = 60
 const truncate = (t: string): string => (t.length > TITLE_MAX ? t.slice(0, TITLE_MAX - 1) + '…' : t)
 
-export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSessionUpdated' | 'getSettings' | 'setSettings' | 'onTermData' | 'onSelectSession'> {
+export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSessionUpdated' | 'getSettings' | 'setSettings' | 'onTermData' | 'onSelectSession' | 'pathForFile' | 'openFile'> {
   private active = new Set<string>() // sessions whose adapter is started this run
   private titles = new Map<string, string>()
 
   constructor(private d: SessionManagerDeps) {}
 
-  async addProject(): Promise<ProjectInfo | null> {
-    const path = await this.d.pickFolder?.()
+  async addProject(dropped?: string): Promise<ProjectInfo | null> {
+    const path = dropped ?? await this.d.pickFolder?.()
     if (!path) return null
     if (!(await git.isGitRepo(path))) throw new Error(`${path} is not a git repository`)
     const existing = this.d.db.listProjects().find((p) => p.path === path)
@@ -45,6 +46,7 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
     this.d.db.addProject(p)
     return p
   }
+  hasWorking(): boolean { return this.d.db.listProjects().some((p) => this.d.db.listSessions(p.id).some((s) => s.status === 'working')) }
   async listProjects(): Promise<ProjectInfo[]> { return this.d.db.listProjects() }
   async listSessions(projectId: string): Promise<SessionInfo[]> {
     return this.d.db.listSessions(projectId).filter((s) => s.status !== ARCHIVED).map((s) => this.info(s))
@@ -75,7 +77,8 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
     }
     const row: Session = {
       id, projectId: project.id, provider: input.provider, accountId: input.accountId ?? null, model: input.model ?? null,
-      permissionMode: input.permissionMode, worktreePath, branch, status: 'idle', resumeToken: null, createdAt: Date.now(), title: null,
+      permissionMode: input.permissionMode, worktreePath, branch, status: 'idle', resumeToken: null, createdAt: Date.now(), title: input.title?.trim() || null,
+      avatar: input.avatar ? JSON.stringify(input.avatar) : null,
     }
     this.d.db.createSession(row)
     await this.start(row)
@@ -164,6 +167,8 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
   }
   async listFiles(sessionId: string): Promise<string[]> { return git.listFiles(this.cwd(this.row(sessionId))) }
   async listCheckpoints(sessionId: string): Promise<git.Checkpoint[]> { return git.listCheckpoints(this.cwd(this.row(sessionId)), sessionId) }
+  async checkTool(id: ProviderId | 'gh'): Promise<boolean> { return checkTool(id) }
+  async rewindPreview(sessionId: string, checkpointId: string): Promise<string[]> { return git.rewindPreview(this.cwd(this.row(sessionId)), sessionId, checkpointId) }
   async rewindSession(sessionId: string, checkpointId: string): Promise<void> {
     const row = this.row(sessionId)
     if (row.status === 'working') throw new Error('Stop the session before rewinding')
@@ -217,6 +222,45 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
     this.d.emit.session(this.info(next))
     return this.info(next)
   }
+  async removeAccount(accountId: string): Promise<void> {
+    const a = this.account(accountId)
+    const n = this.d.db.countAccountSessions(accountId)
+    if (n > 0) throw new Error(`Move ${n} ${n === 1 ? 'session' : 'sessions'} off this account first`)
+    this.d.db.removeAccount(accountId)
+    // Only ever delete inside our own accounts dir.
+    if (a.configDir && this.d.accountsDir) {
+      const rel = relative(resolve(this.d.accountsDir), resolve(a.configDir))
+      if (rel && !rel.startsWith('..') && !isAbsolute(rel)) await rm(a.configDir, { recursive: true, force: true })
+    }
+  }
+  /** Change model and/or permission mode; the adapter restarts (resuming the chat) on the next send. */
+  async configureSession(sessionId: string, opts: { model?: string | null; permissionMode?: PermissionMode }): Promise<SessionInfo> {
+    const row = this.row(sessionId)
+    if (row.status === 'working') throw new Error('Stop the turn before changing settings')
+    const { permissionMode } = opts
+    if (permissionMode && !this.d.adapters[row.provider].permissionModes.includes(permissionMode)) throw new Error(`${row.provider} has no ${permissionMode} mode`)
+    if (this.active.delete(sessionId)) await this.d.adapters[row.provider].close(sessionId)
+    this.d.db.updateSession(sessionId, { ...(opts.model !== undefined ? { model: opts.model } : {}), ...(permissionMode ? { permissionMode } : {}) })
+    const next = this.info(this.row(sessionId))
+    this.d.emit.session(next)
+    return next
+  }
+  async branchStatus(sessionId: string) { return git.branchStatus(this.cwd(this.row(sessionId))) }
+  /** Absolute path of a file in the session's working dir; refuses anything that escapes it. */
+  resolveFile(sessionId: string, relPath: string): string {
+    const cwd = resolve(this.cwd(this.row(sessionId)))
+    const full = resolve(cwd, relPath)
+    const rel = relative(cwd, full)
+    if (!rel || rel.startsWith('..') || isAbsolute(rel)) throw new Error('File is outside the session folder')
+    return full
+  }
+  async revertFile(sessionId: string, relPath: string): Promise<void> {
+    const row = this.row(sessionId)
+    if (row.status === 'working') throw new Error('Stop the turn before reverting files')
+    const full = this.resolveFile(sessionId, relPath)
+    const cwd = this.cwd(row)
+    await git.revertFile(cwd, relative(resolve(cwd), full), full)
+  }
   async sessionUsage(sessionId: string) { return this.d.db.getUsage(sessionId) }
 
   async termOpen(sessionId: string): Promise<string> {
@@ -243,7 +287,7 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
 
   private record(sessionId: string, e: AgentEvent): void {
     this.d.db.appendEvent(sessionId, e)
-    this.d.emit.event(sessionId, e)
+    this.d.emit.event(sessionId, { ...e, ts: Date.now() })
   }
 
   private onAdapterEvent(sessionId: string, e: AgentEvent): void {
@@ -279,6 +323,7 @@ export class SessionManager implements Omit<AgentDeckApi, 'onEvent' | 'onSession
     return {
       id: s.id, projectId: s.projectId, provider: s.provider, model: s.model ?? undefined, permissionMode: s.permissionMode,
       accountId: s.accountId ?? undefined, worktreePath: s.worktreePath ?? undefined, branch: s.branch ?? undefined, status: s.status, title, createdAt: s.createdAt,
+      avatar: s.avatar ? (JSON.parse(s.avatar) as AvatarChoice) : undefined,
     }
   }
 }

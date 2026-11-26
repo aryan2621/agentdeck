@@ -1,19 +1,11 @@
 // Contract shared by main, preload and renderer. Providers emit only these events.
 
-/** Agents reached through the generic ACP adapter; adding one is one line. */
-export const ACP_AGENTS = {
-  opencode: { label: 'OpenCode', command: 'opencode', args: ['acp'] },
-  gemini: { label: 'Gemini CLI', command: 'gemini', args: ['--experimental-acp'] },
-} as const
-export type AcpAgent = { label: string; command: string; args: readonly string[] }
-
-export type ProviderId = 'claude' | 'codex' | keyof typeof ACP_AGENTS
+export type ProviderId = 'claude' | 'codex'
 /** Providers with their own config dir, login and multiple accounts. */
 export type AccountProvider = 'claude' | 'codex'
 export const PROVIDERS: { id: ProviderId; label: string }[] = [
   { id: 'claude', label: 'Claude Code' },
   { id: 'codex', label: 'Codex' },
-  ...(Object.entries(ACP_AGENTS) as [keyof typeof ACP_AGENTS, AcpAgent][]).map(([id, a]) => ({ id, label: a.label })),
 ]
 export const hasAccounts = (p: ProviderId): p is AccountProvider => p === 'claude' || p === 'codex'
 export type PermissionMode = 'supervised' | 'auto-edit' | 'full-access' | 'plan' // plan: read-only, the agent proposes before acting (Claude only)
@@ -22,7 +14,7 @@ export type SessionStatus = 'idle' | 'working' | 'needs-you' | 'done' | 'error'
 /** base64 image sent with a user message. shortcut: stored inline in the event log; move to files if the DB grows too big. */
 export interface ImageAttachment { mimeType: string; data: string }
 
-export type AgentEvent =
+export type AgentEvent = (
   | { type: 'message'; role: 'user' | 'assistant'; text: string; partial?: boolean; images?: ImageAttachment[] }
   | { type: 'tool_call'; id: string; name: string; input: unknown; output?: string }
   | { type: 'file_change'; path: string; diff?: string }
@@ -30,6 +22,7 @@ export type AgentEvent =
   | { type: 'approval_decision'; id: string; allow: boolean }
   | { type: 'usage'; inputTokens?: number; outputTokens?: number; costUsd?: number; limits?: LimitWindow[] }
   | { type: 'status'; status: SessionStatus; error?: string }
+) & { ts?: number }
 
 // remainingPercent is 0-100; resetsAt is epoch seconds. Windows are null/absent for API-key logins.
 export interface LimitWindow {
@@ -74,6 +67,7 @@ export interface Settings {
   cliPaths: Partial<Record<ProviderId, string>>
   /** Preselected model id per provider; empty = first listed. */
   defaultModels: Partial<Record<ProviderId, string>>
+  theme: 'system' | 'light' | 'dark'
 }
 export const DEFAULT_SETTINGS: Settings = {
   defaultProvider: 'claude',
@@ -81,4 +75,5 @@ export const DEFAULT_SETTINGS: Settings = {
   notify: { done: true, 'needs-you': true, error: true },
   cliPaths: {},
   defaultModels: {},
+  theme: 'system',
 }

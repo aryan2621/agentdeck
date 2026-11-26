@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { AgentDeckApi } from '../shared/ipc'
 
 const call = (name: string) => (...args: unknown[]) => ipcRenderer.invoke(`api:${name}`, ...args)
@@ -10,6 +10,7 @@ const subscribe = <A extends unknown[]>(channel: string, cb: (...a: A) => void):
 
 const api: AgentDeckApi = {
   addProject: call('addProject'),
+  pathForFile: (f) => webUtils.getPathForFile(f),
   listProjects: call('listProjects'),
   listSessions: call('listSessions'),
   listModels: call('listModels'),
@@ -31,6 +32,8 @@ const api: AgentDeckApi = {
   listFiles: call('listFiles'),
   listCheckpoints: call('listCheckpoints'),
   rewindSession: call('rewindSession'),
+  rewindPreview: call('rewindPreview'),
+  checkTool: call('checkTool'),
   pushSession: call('pushSession'),
   createPr: call('createPr'),
   getSettings: call('getSettings'),
@@ -40,6 +43,11 @@ const api: AgentDeckApi = {
   accountLogin: call('accountLogin'),
   moveSession: call('moveSession'),
   sessionUsage: call('sessionUsage'),
+  removeAccount: call('removeAccount'),
+  configureSession: call('configureSession'),
+  branchStatus: call('branchStatus'),
+  openFile: call('openFile'),
+  revertFile: call('revertFile'),
   termOpen: call('termOpen'),
   termWrite: call('termWrite'),
   termResize: call('termResize'),

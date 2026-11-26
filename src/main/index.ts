@@ -1,23 +1,20 @@
 import { autoUpdater } from 'electron-updater'
-import { app, shell, BrowserWindow, Notification } from 'electron'
+import { app, dialog, Menu, shell, BrowserWindow, Notification } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { openDb } from './db'
 import { getSettings, loadSettings } from './settings'
-import { registerIpc, pickFolder } from './ipc'
+import { applyTheme, registerIpc, pickFolder } from './ipc'
 import { SessionManager } from './sessions'
 import { PtyManager } from './pty'
 import { createClaudeProvider } from './providers/claude'
 import { CodexAdapter } from './providers/codex'
-import { AcpAdapter } from './providers/acp'
-import { ACP_AGENTS, type AcpAgent, type ProviderId } from '../shared/types'
 import icon from '../../resources/icon.png?asset'
 
 let mainWindow: BrowserWindow | null = null
+let manager: SessionManager | undefined
+let quitConfirmed = false
 const codex = new CodexAdapter()
-const acp = Object.fromEntries(
-  (Object.entries(ACP_AGENTS) as [ProviderId, AcpAgent][]).map(([id, a]) => [id, new AcpAdapter(id, a)]),
-) as Record<Exclude<ProviderId, 'claude' | 'codex'>, AcpAdapter>
 
 function createWindow(): void {
   // Create the browser window.
@@ -74,13 +71,14 @@ app.whenReady().then(() => {
   })
 
   loadSettings(join(app.getPath('userData'), 'settings.json'))
+  applyTheme()
   const send = (channel: string, ...args: unknown[]): void => mainWindow?.webContents.send(channel, ...args)
   const needsYou = new Set<string>()
   const pty = new PtyManager((id, data) => send('evt:term', id, data))
   ptys = pty
-  const manager = new SessionManager({
+  manager = new SessionManager({
     db: openDb(join(app.getPath('userData'), 'agentdeck.db')),
-    adapters: { claude: createClaudeProvider(), codex, ...acp },
+    adapters: { claude: createClaudeProvider(), codex },
     worktreesDir: join(app.getPath('userData'), 'worktrees'),
     accountsDir: join(app.getPath('userData'), 'accounts'),
     pickFolder: () => pickFolder(mainWindow),
@@ -102,6 +100,19 @@ app.whenReady().then(() => {
   })
   registerIpc(manager)
 
+  // Items replay the renderer's own ⌘ shortcut (registerAccelerator:false keeps the key from firing twice).
+  const key = (label: string, k: string): Electron.MenuItemConstructorOptions => ({
+    label, accelerator: `Cmd+${k.toUpperCase()}`, registerAccelerator: false,
+    click: () => mainWindow?.webContents.sendInputEvent({ type: 'keyDown', keyCode: k, modifiers: ['meta'] })
+  })
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { role: 'appMenu' },
+    { label: 'File', submenu: [key('New Session', 'n'), key('Command Palette', 'k'), { type: 'separator' }, { role: 'close' }] },
+    { role: 'editMenu' },
+    { label: 'View', submenu: [key('Toggle Sidebar', 'b'), key('Next Session Needing You', 'j'), { type: 'separator' }, { role: 'reload' }, { role: 'toggleDevTools' }, { type: 'separator' }, { role: 'togglefullscreen' }] },
+    { role: 'windowMenu' }
+  ]))
+
   createWindow()
 
   app.on('activate', function () {
@@ -121,9 +132,15 @@ app.on('window-all-closed', () => {
 })
 
 let ptys: PtyManager | undefined
-app.on('before-quit', () => {
+app.on('before-quit', (e) => {
+  if (!quitConfirmed && manager?.hasWorking()) {
+    e.preventDefault()
+    void dialog.showMessageBox({ type: 'warning', message: 'Quit AgentDeck?', detail: 'Agents stop when AgentDeck quits.', buttons: ['Quit', 'Cancel'], defaultId: 1, cancelId: 1 }).then((r) => {
+      if (r.response === 0) { quitConfirmed = true; app.quit() }
+    })
+    return
+  }
   codex.dispose()
-  Object.values(acp).forEach((a) => a.dispose())
   ptys?.dispose()
 })
 

@@ -16,11 +16,12 @@ export interface Session {
   resumeToken: string | null
   createdAt: number
   title: string | null // user-chosen name; null = derived from the first message
+  avatar?: string | null // JSON AvatarChoice; null = look derived from the id
 }
 export interface Usage { inputTokens: number; outputTokens: number; costUsd: number }
 
 // Append-only: MIGRATIONS[i] upgrades user_version i to i+1. Never edit a shipped step.
-const MIGRATIONS = ['ALTER TABLE sessions ADD COLUMN title TEXT']
+const MIGRATIONS = ['ALTER TABLE sessions ADD COLUMN title TEXT', 'ALTER TABLE sessions ADD COLUMN avatar TEXT']
 const SCHEMA_VERSION = MIGRATIONS.length + 1
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, path TEXT NOT NULL, name TEXT NOT NULL);
@@ -37,7 +38,7 @@ CREATE TABLE IF NOT EXISTS usage (
   outputTokens INTEGER NOT NULL DEFAULT 0, costUsd REAL NOT NULL DEFAULT 0
 );`
 
-const SESSION_COLS = ['projectId', 'provider', 'accountId', 'model', 'permissionMode', 'worktreePath', 'branch', 'status', 'resumeToken', 'createdAt', 'title'] as const
+const SESSION_COLS = ['projectId', 'provider', 'accountId', 'model', 'permissionMode', 'worktreePath', 'branch', 'status', 'resumeToken', 'createdAt', 'title', 'avatar'] as const
 
 export function openDb(path: string) {
   const db = new DatabaseSync(path)
@@ -57,8 +58,11 @@ export function openDb(path: string) {
     addAccount: (a: Account) =>
       void run('INSERT INTO accounts (id, provider, label, configDir) VALUES (?, ?, ?, ?)', a.id, a.provider, a.label, a.configDir),
     listAccounts: () => all<Account>('SELECT * FROM accounts'),
+    removeAccount: (id: string) => void run('DELETE FROM accounts WHERE id = ?', id),
+    /** All sessions (any project) that use the account. */
+    countAccountSessions: (id: string) => (all<{ n: number }>('SELECT COUNT(*) AS n FROM sessions WHERE accountId = ?', id)[0]?.n ?? 0),
     createSession: (s: Session) =>
-      void run(`INSERT INTO sessions (id, ${SESSION_COLS.join(', ')}) VALUES (?${', ?'.repeat(SESSION_COLS.length)})`, s.id, ...SESSION_COLS.map((c) => s[c])),
+      void run(`INSERT INTO sessions (id, ${SESSION_COLS.join(', ')}) VALUES (?${', ?'.repeat(SESSION_COLS.length)})`, s.id, ...SESSION_COLS.map((c) => s[c] ?? null)),
     updateSession(id: string, patch: Partial<Omit<Session, 'id'>>) {
       const keys = SESSION_COLS.filter((c) => c in patch) // whitelist: column names never come from the caller
       if (!keys.length) return
@@ -68,7 +72,7 @@ export function openDb(path: string) {
     appendEvent: (sessionId: string, e: AgentEvent) =>
       void run('INSERT INTO events (sessionId, ts, json) VALUES (?, ?, ?)', sessionId, Date.now(), JSON.stringify(e)),
     listEvents: (sessionId: string) =>
-      all<{ json: string }>('SELECT json FROM events WHERE sessionId = ? ORDER BY id', sessionId).map((r) => JSON.parse(r.json) as AgentEvent),
+      all<{ json: string; ts: number }>('SELECT json, ts FROM events WHERE sessionId = ? ORDER BY id', sessionId).map((r) => ({ ...JSON.parse(r.json), ts: r.ts }) as AgentEvent),
     /** Chat messages (not streaming partials) containing `q`, newest first. */
     searchMessages: (q: string, limit = 50) =>
       all<{ sessionId: string; text: string }>(
