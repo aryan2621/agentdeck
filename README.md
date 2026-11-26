@@ -2,6 +2,8 @@
 
 A macOS app for running several AI coding agents (Claude Code and Codex) in parallel, each in its own git worktree, with one place to see which agent needs you.
 
+![A session with chat, the Changes panel and the commit, push and PR form](docs/screenshots/session.png)
+
 ## Features
 - Projects and sessions: add a local git repo, start chat sessions, resume after restart.
 - Worktree per session, plus `agentdeck.json` setup scripts.
@@ -14,6 +16,17 @@ A macOS app for running several AI coding agents (Claude Code and Codex) in para
 - Fork, rename, archive and rewind files to a checkpoint.
 - Status dots, dock badge and notifications.
 - Multiple Claude/Codex logins, moving a session between accounts, usage and plan limits.
+
+### Screenshots
+Approving a command while the agent waits:
+
+![An agent asking approval to run a command](docs/screenshots/approval.png)
+
+Settings:
+
+![Settings dialog](docs/screenshots/settings.png)
+
+*Screenshots use demo data.*
 
 ## Requirements
 macOS, Node 24, pnpm, and the `claude` and `codex` CLIs installed and logged in. `gh` is needed for pull requests.
